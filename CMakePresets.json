@@ -1,0 +1,161 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 20,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base-gcc",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "base-clang",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "linux-debug",
+            "displayName": "Linux Debug (GCC)",
+            "inherits": "base-gcc",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/cmake-linux-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux Release (GCC)",
+            "inherits": "base-gcc",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/cmake-linux-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "linux-ship",
+            "displayName": "Linux Ship (GCC)",
+            "inherits": "base-gcc",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/cmake-linux-ship",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Ship"
+            }
+        },
+        {
+            "name": "linux-debug-clang",
+            "displayName": "Linux Debug (Clang)",
+            "inherits": "base-clang",
+            "binaryDir": "${sourceDir}/build/cmake-linux-debug-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "linux-release-clang",
+            "displayName": "Linux Release (Clang)",
+            "inherits": "base-clang",
+            "binaryDir": "${sourceDir}/build/cmake-linux-release-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "linux-ship-clang",
+            "displayName": "Linux Ship (Clang)",
+            "inherits": "base-clang",
+            "binaryDir": "${sourceDir}/build/cmake-linux-ship-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Ship"
+            }
+        },
+        {
+            "name": "windows-debug",
+            "displayName": "Windows Debug (GCC)",
+            "inherits": "base-gcc",
+            "generator": "MinGW Makefiles",
+            "binaryDir": "${sourceDir}/build/cmake-windows-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows Release (GCC)",
+            "inherits": "base-gcc",
+            "generator": "MinGW Makefiles",
+            "binaryDir": "${sourceDir}/build/cmake-windows-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "windows-ship",
+            "displayName": "Windows Ship (GCC)",
+            "inherits": "base-gcc",
+            "generator": "MinGW Makefiles",
+            "binaryDir": "${sourceDir}/build/cmake-windows-ship",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Ship"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "linux-debug",
+            "displayName": "Linux Debug (GCC)",
+            "configurePreset": "linux-debug"
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux Release (GCC)",
+            "configurePreset": "linux-release"
+        },
+        {
+            "name": "linux-ship",
+            "displayName": "Linux Ship (GCC)",
+            "configurePreset": "linux-ship"
+        },
+        {
+            "name": "linux-debug-clang",
+            "displayName": "Linux Debug (Clang)",
+            "configurePreset": "linux-debug-clang"
+        },
+        {
+            "name": "linux-release-clang",
+            "displayName": "Linux Release (Clang)",
+            "configurePreset": "linux-release-clang"
+        },
+        {
+            "name": "linux-ship-clang",
+            "displayName": "Linux Ship (Clang)",
+            "configurePreset": "linux-ship-clang"
+        },
+            {
+            "name": "windows-debug",
+            "displayName": "Windows Debug (GCC)",
+            "configurePreset": "windows-debug"
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows Release (GCC)",
+            "configurePreset": "windows-release"
+        },
+        {
+            "name": "windows-ship",
+            "displayName": "Windows Ship (GCC)",
+            "configurePreset": "windows-ship"
+        }
+    ]
+}

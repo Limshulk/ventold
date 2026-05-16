@@ -1,0 +1,14 @@
+# vent build system.
+# ——————————————————————
+# generated file that defines imported static library targets for each module.
+# included by vent-config.cmake.
+#
+# creates targets:
+#   vent::core  - core module static library.
+#   vent::job   - job module static library.
+#   etc.
+
+# --- imported module targets ---
+
+@VENT_IMPORTED_TARGETS@
+

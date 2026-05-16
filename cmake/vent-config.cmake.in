@@ -1,0 +1,378 @@
+# vent build system.
+# ——————————————————————
+# generated cmake config file for find_package(vent).
+#
+# this file is included when clients use:
+#   find_package(vent REQUIRED)
+#
+# provides:
+#   vent_FOUND          - true if sdk was found.
+#   VENT_SDK_DIR        - root of the sdk.
+#   VENT_SDK_INCLUDE_DIR - path to include/_vent/.
+#   VENT_SDK_LIB_DIR     - path to static libraries.
+#   VENT_SDK_PLUGINS_DIR - path to plugins.
+#   VENT_SDK_TEMPLATES_DIR - path to templates.
+#   vent_create_client() - function to create client apps.
+#
+# usage in standalone project:
+#   cmake_minimum_required(VERSION 3.20)
+#   project(client_name)
+#
+#   # assuming sdk/ is in project root.
+#   set(vent_DIR "${CMAKE_SOURCE_DIR}/sdk/cmake")
+#   find_package(vent REQUIRED)
+#
+#   vent_create_client(
+#       NAME client_name
+#       MODULES core job
+#       SOURCES src/main.cpp
+#   )
+
+@PACKAGE_INIT@
+
+# --- sdk paths ---
+# paths are relative to this config file's location.
+
+get_filename_component(VENT_SDK_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
+get_filename_component(VENT_SDK_DIR "${VENT_SDK_CMAKE_DIR}/.." ABSOLUTE)
+
+set(VENT_SDK_INCLUDE_DIR "${VENT_SDK_DIR}/include")
+set(VENT_SDK_LIB_DIR "${VENT_SDK_DIR}/lib")
+set(VENT_SDK_PLUGINS_DIR "${VENT_SDK_DIR}/plugins")
+set(VENT_SDK_TEMPLATES_DIR "${VENT_SDK_DIR}/templates")
+
+# --- platform detection ---
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(VENT_PLATFORM "linux")
+    set(VENT_PLATFORM_LINUX TRUE)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(VENT_PLATFORM "windows")
+    set(VENT_PLATFORM_WINDOWS TRUE)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(VENT_PLATFORM "macos")
+    set(VENT_PLATFORM_MACOS TRUE)
+else()
+    message(FATAL_ERROR "[vent] unsupported platform: ${CMAKE_SYSTEM_NAME}")
+endif()
+
+# --- compiler detection ---
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(VENT_COMPILER "gcc")
+    set(VENT_COMPILER_GCC TRUE)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(VENT_COMPILER "clang")
+    set(VENT_COMPILER_CLANG TRUE)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    set(VENT_COMPILER "msvc")
+    set(VENT_COMPILER_MSVC TRUE)
+else()
+    message(WARNING "[vent] unknown compiler: ${CMAKE_CXX_COMPILER_ID}")
+    set(VENT_COMPILER "unknown")
+endif()
+
+# --- build type ---
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "build type" FORCE)
+endif()
+
+set(VENT_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+
+# register ship as a valid configuration type.
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release;Ship" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_SHIP "${CMAKE_CXX_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_SHIP "${CMAKE_EXE_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+set(CMAKE_SHARED_LINKER_FLAGS_SHIP "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+
+# --- global compile definitions ---
+
+if(VENT_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(VENT_DEBUG=1)
+elseif(VENT_BUILD_TYPE STREQUAL "Release")
+    add_compile_definitions(VENT_RELEASE=1)
+elseif(VENT_BUILD_TYPE STREQUAL "Ship")
+    add_compile_definitions(VENT_SHIP=1 NDEBUG=1)
+endif()
+
+if(VENT_PLATFORM_LINUX)
+    add_compile_definitions(VENT_LINUX=1)
+elseif(VENT_PLATFORM_WINDOWS)
+    add_compile_definitions(VENT_WINDOWS=1)
+elseif(VENT_PLATFORM_MACOS)
+    add_compile_definitions(VENT_MACOS=1)
+endif()
+
+# --- utility functions ---
+
+function(vent_log MESSAGE)
+    message(STATUS "[vent] ${MESSAGE}")
+endfunction()
+
+function(vent_set_common_properties TARGET)
+    set_target_properties(${TARGET} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    if(VENT_COMPILER_GCC OR VENT_COMPILER_CLANG)
+        target_compile_options(${TARGET} PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-unused-parameter
+            -fvisibility=hidden -fvisibility-inlines-hidden
+        )
+
+        if(VENT_BUILD_TYPE STREQUAL "Debug")
+            target_compile_options(${TARGET} PRIVATE -g3 -O0)
+        elseif(VENT_BUILD_TYPE STREQUAL "Release")
+            target_compile_options(${TARGET} PRIVATE -O2)
+        elseif(VENT_BUILD_TYPE STREQUAL "Ship")
+            target_compile_options(${TARGET} PRIVATE -O3 -flto)
+            target_link_options(${TARGET} PRIVATE -flto)
+        endif()
+    elseif(VENT_COMPILER_MSVC)
+        target_compile_options(${TARGET} PRIVATE /W4 /permissive-)
+    endif()
+endfunction()
+
+# --- static lib targets ---
+# create imported targets for each module library.
+
+include("${VENT_SDK_CMAKE_DIR}/vent-targets.cmake")
+
+# --- app output directory ---
+# for standalone builds, apps go into build/<platform>/<compiler>/<config>/.
+# cmake artifacts should be in CMAKE_BINARY_DIR (e.g., build/cmake-linux-debug/).
+
+# extract the config directory name from CMAKE_BINARY_DIR to determine prefix.
+# expects user to configure with: cmake -B build/cmake-linux-debug
+get_filename_component(_BINARY_DIR_NAME "${CMAKE_BINARY_DIR}" NAME)
+
+# derive the apps output based on platform/compiler/config.
+set(VENT_APPS_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/build/${VENT_PLATFORM}/${VENT_COMPILER}/${VENT_BUILD_TYPE}")
+
+# --- vent_create_client ---
+# same interface as in-workspace version, but uses imported targets.
+
+function(vent_create_client)
+    cmake_parse_arguments(
+        APP
+        ""
+        "NAME;LAUNCHER"
+        "MODULES;OPTIONAL_MODULES;PLUGINS;STARTUP_PLUGINS;SOURCES"
+        ${ARGN}
+    )
+
+    if(NOT APP_NAME)
+        message(FATAL_ERROR "vent_create_client: NAME is required")
+    endif()
+    if(NOT APP_MODULES)
+        message(FATAL_ERROR "vent_create_client: MODULES is required (at minimum: core)")
+    endif()
+    if(NOT APP_SOURCES)
+        message(FATAL_ERROR "vent_create_client: SOURCES is required")
+    endif()
+
+    vent_log("creating client: ${APP_NAME}")
+
+    set(ENGINE_TARGET "vent_engine_${APP_NAME}")
+    set(CLIENT_TARGET "client_${APP_NAME}")
+    set(LAUNCHER_TARGET "${APP_NAME}")
+
+    set(APP_OUTPUT_DIR "${VENT_APPS_OUTPUT_DIR}/${APP_NAME}")
+
+    # determine modules.
+    set(ALL_MODULES ${APP_MODULES})
+    if(APP_OPTIONAL_MODULES AND NOT VENT_BUILD_TYPE STREQUAL "Ship")
+        list(APPEND ALL_MODULES ${APP_OPTIONAL_MODULES})
+    endif()
+
+    vent_log("  modules: ${ALL_MODULES}")
+
+    # --- create engine shared lib ---
+    vent_log("  creating engine: ${ENGINE_TARGET}")
+
+    add_library(${ENGINE_TARGET} SHARED)
+
+    set(ENGINE_DUMMY_SOURCE "${CMAKE_BINARY_DIR}/generated/${APP_NAME}/engine_dummy.cpp")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated/${APP_NAME}")
+    file(WRITE "${ENGINE_DUMMY_SOURCE}" "// generated. links modules into engine.\n")
+    target_sources(${ENGINE_TARGET} PRIVATE "${ENGINE_DUMMY_SOURCE}")
+
+    # link static modules with whole-archive.
+    set(ENGINE_LIBS "")
+    foreach(MOD IN LISTS ALL_MODULES)
+        set(MOD_TARGET "vent::${MOD}")
+        if(NOT TARGET ${MOD_TARGET})
+            message(FATAL_ERROR "vent_create_client: module '${MOD}' not found in SDK")
+        endif()
+        list(APPEND ENGINE_LIBS ${MOD_TARGET})
+    endforeach()
+
+    if(VENT_COMPILER_GCC OR VENT_COMPILER_CLANG)
+        target_link_libraries(${ENGINE_TARGET} PRIVATE
+            -Wl,--whole-archive
+            ${ENGINE_LIBS}
+            -Wl,--no-whole-archive
+        )
+    elseif(VENT_COMPILER_MSVC)
+        foreach(LIB IN LISTS ENGINE_LIBS)
+            target_link_options(${ENGINE_TARGET} PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:${LIB}>")
+        endforeach()
+        target_link_libraries(${ENGINE_TARGET} PRIVATE ${ENGINE_LIBS})
+    endif()
+
+    target_include_directories(${ENGINE_TARGET} PRIVATE "${VENT_SDK_INCLUDE_DIR}")
+    vent_set_common_properties(${ENGINE_TARGET})
+    target_compile_definitions(${ENGINE_TARGET} PRIVATE VENT_EXPORT)
+
+    set_target_properties(${ENGINE_TARGET} PROPERTIES
+        OUTPUT_NAME "vent_engine"
+        LIBRARY_OUTPUT_DIRECTORY "${APP_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${APP_OUTPUT_DIR}"
+    )
+
+    # --- create client shared lib ---
+    vent_log("  creating client: ${CLIENT_TARGET}")
+
+    add_library(${CLIENT_TARGET} SHARED ${APP_SOURCES})
+    vent_set_common_properties(${CLIENT_TARGET})
+    target_include_directories(${CLIENT_TARGET} PRIVATE "${VENT_SDK_INCLUDE_DIR}")
+    target_compile_definitions(${CLIENT_TARGET} PRIVATE VENT_EXPORT VENT_APP_ID="${APP_NAME}")
+
+    set_target_properties(${CLIENT_TARGET} PROPERTIES
+        OUTPUT_NAME "client_${APP_NAME}"
+        LIBRARY_OUTPUT_DIRECTORY "${APP_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${APP_OUTPUT_DIR}"
+    )
+
+    # --- create launcher executable ---
+    vent_log("  creating launcher: ${LAUNCHER_TARGET}")
+
+    if(APP_LAUNCHER)
+        set(LAUNCHER_SOURCE "${APP_LAUNCHER}")
+    else()
+        set(LAUNCHER_SOURCE "${VENT_SDK_TEMPLATES_DIR}/launcher.cpp")
+    endif()
+
+    add_executable(${LAUNCHER_TARGET} "${LAUNCHER_SOURCE}")
+    vent_set_common_properties(${LAUNCHER_TARGET})
+    target_include_directories(${LAUNCHER_TARGET} PRIVATE "${VENT_SDK_INCLUDE_DIR}")
+    target_compile_definitions(${LAUNCHER_TARGET} PRIVATE VENT_APP_ID="${APP_NAME}")
+
+    if(VENT_PLATFORM_LINUX)
+        target_link_libraries(${LAUNCHER_TARGET} PRIVATE dl)
+    endif()
+
+    set_target_properties(${LAUNCHER_TARGET} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${APP_OUTPUT_DIR}"
+    )
+
+    add_dependencies(${LAUNCHER_TARGET} ${ENGINE_TARGET} ${CLIENT_TARGET})
+
+    # --- copy plugins ---
+    # plugins are copied to app directory for dynamic loading by systems.
+    if(APP_PLUGINS)
+        foreach(PLG IN LISTS APP_PLUGINS)
+            set(PLG_FILE "${VENT_SDK_PLUGINS_DIR}/libvent_${PLG}.so")
+            if(VENT_PLATFORM_WINDOWS)
+                set(PLG_FILE "${VENT_SDK_PLUGINS_DIR}/vent_${PLG}.dll")
+            elseif(VENT_PLATFORM_MACOS)
+                set(PLG_FILE "${VENT_SDK_PLUGINS_DIR}/libvent_${PLG}.dylib")
+            endif()
+
+            if(NOT EXISTS "${PLG_FILE}")
+                message(FATAL_ERROR "vent_create_client: plugin '${PLG}' not found at ${PLG_FILE}")
+            endif()
+
+            add_custom_command(TARGET ${LAUNCHER_TARGET} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PLG_FILE}" "${APP_OUTPUT_DIR}/"
+                COMMENT "copying plugin ${PLG}"
+            )
+        endforeach()
+    endif()
+
+    # startup plugins: verify they are listed in PLUGINS.
+    foreach(PLG IN LISTS APP_STARTUP_PLUGINS)
+        list(FIND APP_PLUGINS ${PLG} PLG_INDEX)
+        if(PLG_INDEX EQUAL -1)
+            message(FATAL_ERROR
+                    "vent_create_client: STARTUP_PLUGINS entry '${PLG}' not found in PLUGINS list!
+                    All startup plugins must first be listed in PLUGINS to be copied to the app directory.")
+        endif()
+    endforeach()
+
+    # --- generate build info header ---
+    # contains startup plugins (STARTUP_PLUGINS + client) for auto-loading.
+    # other PLUGINS are available for dynamic loading but not auto-loaded.
+    set(BUILD_INFO_DIR "${CMAKE_BINARY_DIR}/generated/${APP_NAME}")
+    set(BUILD_INFO_HEADER "${BUILD_INFO_DIR}/${APP_NAME}_build_info.hpp")
+
+    # build startup plugins list with prefixes.
+    set(STARTUP_PLUGINS_LIST "")
+    foreach(PLG IN LISTS APP_STARTUP_PLUGINS)
+        list(APPEND STARTUP_PLUGINS_LIST "vent_${PLG}")
+    endforeach()
+    list(APPEND STARTUP_PLUGINS_LIST "client_${APP_NAME}")
+    list(LENGTH STARTUP_PLUGINS_LIST STARTUP_PLUGINS_COUNT)
+
+    string(REPLACE ";" "\", \"" STARTUP_PLUGINS_STR "${STARTUP_PLUGINS_LIST}")
+    string(REPLACE ";" "\", \"" OPT_MODULES_STR "${APP_OPTIONAL_MODULES}")
+
+    if(STARTUP_PLUGINS_LIST)
+        set(STARTUP_PLUGINS_INIT "\"${STARTUP_PLUGINS_STR}\"")
+    else()
+        set(STARTUP_PLUGINS_INIT "")
+    endif()
+
+    if(APP_OPTIONAL_MODULES)
+        set(OPT_MODULES_INIT "\"${OPT_MODULES_STR}\"")
+    else()
+        set(OPT_MODULES_INIT "")
+    endif()
+
+    if(VENT_BUILD_TYPE STREQUAL "Ship")
+        set(IS_SHIP "true")
+    else()
+        set(IS_SHIP "false")
+    endif()
+
+    file(MAKE_DIRECTORY "${BUILD_INFO_DIR}")
+    file(WRITE "${BUILD_INFO_HEADER}"
+"// GENERATED.
+// ——————————————————————
+// auto-generated by cmake. do not edit.
+
+#pragma once
+
+#include <_vent/vent_sdk.hpp>
+
+namespace vent::generated {
+
+/// @brief startup plugins to load at engine initialization (client plugin last).
+/// @note other plugins (PLUGINS without STARTUP_PLUGINS) are available for
+/// dynamic loading by systems (e.g., renderer loads vulkan_backend).
+inline constexpr const char* plugins[] = {${STARTUP_PLUGINS_INIT}};
+
+/// @brief number of startup plugins to load.
+inline constexpr u32 plugin_count = ${STARTUP_PLUGINS_COUNT};
+
+/// @brief optional modules that may not be present.
+inline constexpr const char* const* optional_modules = nullptr;
+
+/// @brief true if this is a ship build.
+inline constexpr bool is_ship_build = ${IS_SHIP};
+
+/// @brief application identifier.
+inline constexpr const char* app_id = \"${APP_NAME}\";
+
+}  // namespace vent::generated
+")
+
+    target_include_directories(${CLIENT_TARGET} PRIVATE "${BUILD_INFO_DIR}")
+
+    vent_log("  client ${APP_NAME} ready -> ${APP_OUTPUT_DIR}")
+endfunction()
+
+# mark package as found.
+set(vent_FOUND TRUE)
+
+vent_log("sdk found at ${VENT_SDK_DIR}")
+

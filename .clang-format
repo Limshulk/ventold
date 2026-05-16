@@ -1,0 +1,157 @@
+---
+# clang-format v21.1.5 configuration
+
+Language:        Cpp
+Standard:        Latest
+
+# BASIC FORMATTING
+ColumnLimit:     80
+TabWidth:        4
+UseTab:          Never
+LineEnding:      DeriveLF
+
+# INDENTATION
+IndentWidth:     4
+AccessModifierOffset: -4
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
+IndentAccessModifiers: false
+IndentCaseLabels: true
+IndentExternBlock: AfterExternBlock
+IndentPPDirectives: BeforeHash
+IndentRequiresClause: true
+IndentWrappedFunctionNames: false
+
+# ALIGNMENT
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments:
+  Enabled:         true
+  AcrossEmptyLines: false
+  AcrossComments:  false
+  AlignCompound:   false
+  AlignFunctionPointers: false
+  PadOperators:    true
+AlignConsecutiveDeclarations:
+  Enabled:         true
+  AcrossEmptyLines: false
+  AcrossComments:  false
+  AlignCompound:   false
+  AlignFunctionPointers: false
+  PadOperators:    true
+AlignEscapedNewlines: Left
+AlignOperands:   Align
+AlignTrailingComments:
+  Kind:            Always
+  OverEmptyLines:  0
+
+# BREAKING (LINE WRAPPING)
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBinaryOperators: None
+BreakBeforeConceptDeclarations: Always
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeComma
+BreakStringLiterals: true
+PackConstructorInitializers: Never
+BreakAfterAttributes: Always
+
+# BRACES
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel:  false
+  AfterClass:      false
+  AfterControlStatement: Never
+  AfterEnum:       false
+  AfterExternBlock: false
+  AfterFunction:   false
+  AfterNamespace:  false
+  AfterObjCDeclaration: false
+  AfterStruct:     false
+  AfterUnion:      false
+  BeforeCatch:     false
+  BeforeElse:      false
+  BeforeLambdaBody: false
+  BeforeWhile:     false
+  IndentBraces:    false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+# SHORT CONSTRUCTS ON SINGLE LINE
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: Empty
+AllowShortLoopsOnASingleLine: false
+
+# PACKING / BIN PACKING
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackParameters: false
+
+# SPACING
+SpaceAfterCStyleCast: true
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyBlock: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles:  Never
+SpacesInContainerLiterals: false
+SpacesInParens:  Never
+SpacesInSquareBrackets: false
+
+# POINTER AND REFERENCE ALIGNMENT
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+QualifierAlignment: Leave
+
+# INCLUDES
+SortIncludes:    Never
+IncludeBlocks:   Preserve
+IncludeCategories:
+  - Regex:           '^<.*\.h>'
+    Priority:        1
+  - Regex:           '^".*\.h"'
+    Priority:        2
+  - Regex:           '.*'
+    Priority:        3
+IncludeIsMainRegex: '([-_](test|unittest))?$'
+
+# NAMESPACES AND COMMENTS
+CompactNamespaces: false
+FixNamespaceComments: true
+NamespaceIndentation: None
+ReflowComments:  true
+CommentPragmas:  '^ IWYU pragma:'
+
+# EMPTY LINES
+EmptyLineBeforeAccessModifier: Leave
+MaxEmptyLinesToKeep: 1
+
+# OTHER STYLE OPTIONS
+Cpp11BracedListStyle: true
+SortUsingDeclarations: LexicographicNumeric
+
+# PENALTIES (AFFECTS LINE BREAKING DECISIONS)
+PenaltyBreakAssignment: 2
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakString: 1000
+PenaltyExcessCharacter: 100
+PenaltyIndentedWhitespace: 0
+PenaltyReturnTypeOnItsOwnLine: 200
+
+# DISABLED / DEFAULT OPTIONS
+DisableFormat:   false

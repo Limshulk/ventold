@@ -1,0 +1,27 @@
+{   
+    "search.exclude": {
+        "**/build": true
+    },
+    "cmake.configureOnOpen": true,
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.copyCompileCommands": "${workspaceFolder}/build/compile_commands/compile_commands.json",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands/compile_commands.json",
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "folder-customization.folders": [
+        {
+            "path": "vent/build/",
+            "color": "foldercustomization.AnsiColor8"
+        },
+        {
+            "path": "vent_apps/",
+            "color": "foldercustomization.AnsiColor104"
+        },
+        {
+            "path": "vent/"
+        },
+        {
+            "path": "vent_engine/",
+            "color": "foldercustomization.AnsiColor121"
+        }
+    ]
+}

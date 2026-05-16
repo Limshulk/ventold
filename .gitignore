@@ -1,0 +1,65 @@
+# .gitignore for Rayleigh project
+
+# Build artifacts
+/build/
+/build-*/
+*/build/*
+linux-debug/
+windows-default/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+cmake_install.cmake.*
+rules.ninja
+TargetDirectories.txt
+InstallScripts.json
+
+# Visual Studio / Windows
+.vs/
+*.vcxproj*
+*.sln
+*.suo
+*.user
+*.userosscache
+*.VC.db
+*.VC.opendb
+
+# VS Code
+#.vscode/
+
+# Compiled objects and libraries
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+*.out
+*.pdb
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+*~
+*.tmp.*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor swap and backup files
+*.swp
+*.swo
+*.bak
+
+# Python caches
+__pycache__/
+*.pyc
+
+# IDEs
+.idea/
+*.iml

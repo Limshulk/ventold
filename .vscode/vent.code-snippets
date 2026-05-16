@@ -1,0 +1,63 @@
+{
+    "VENT HEAD HPP": {
+        "scope": "cpp,c",
+        "prefix": "venthead_hpp",
+        "body": [
+            "#pragma once",
+            "//",
+            "// ${1:module}.",
+            "// ${2:description}.",
+            "// ——————————————————————",
+            "//",
+            "// ${3:details}.",
+            "",
+            "$0"
+        ],
+        "description": "insert vent file header."
+    },
+    "VENT HEAD CPP": {
+        "scope": "cpp,c",
+        "prefix": "venthead_cpp",
+        "body": [
+            "// ${1:module}.",
+            "// ${2:description}.",
+            "// ——————————————————————",
+            "//",
+            "// ${3:details}.",
+            "",
+            "$0"
+        ],
+        "description": "insert vent file header."
+    },
+    "VENT SEPERATOR_S": {
+        "scope": "cpp,c",
+        "prefix": "ventseperator_small",
+        "body": [
+            "// --- ${1:description} ---",
+            "$0"
+        ],
+        "description": "insert vent seperator."
+    },
+    "VENT SEPERATOR_L": {
+        "scope": "cpp,c",
+        "prefix": "ventseperator_large",
+        "body": [
+            "// --- ${1:description} ---",
+            "// —————————————————————————————————————————————————————————————————————————————",
+            "",
+            "$0"
+        ],
+        "description": "insert vent seperator."
+    },
+    "VENT SEPERATOR_LINDENT": {
+        "scope": "cpp,c",
+        "prefix": "ventseperator_large_indent",
+        "body": [
+            "// --- ${1:description} ---",
+            "// —————————————————————————————————————————————————————————————————————————",
+            "",
+            "$0"
+        ],
+        "description": "insert vent seperator."
+    },
+}
