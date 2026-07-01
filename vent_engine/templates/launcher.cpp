@@ -81,7 +81,7 @@ auto main(int argc, char** argv) -> int {
     // fire up engine.
     int result = engine_entry(config);
 
-    // clean up and exit.
+    // engine's over. clean up and exit.
     std::printf(
         "\n[launcher] vent engine has exited. unloading engine library...\n");
     vent::lib::unload_library(engine_handle);

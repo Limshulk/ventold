@@ -15,6 +15,6 @@ vent_create_module(
         #src/event_bus.cpp
         #src/main_loop.cpp
         #src/plugin_manager.cpp
-        #src/system_creator.cpp
-        #src/system_registry.cpp
+        src/system_creator.cpp
+        src/system_registry.cpp
 )

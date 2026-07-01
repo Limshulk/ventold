@@ -12,6 +12,8 @@
 
 #include <core/thread_registry.hpp>
 
+#include <system/system_registry.hpp>
+
 namespace vent {
 
 /// @brief parse command line arguments and apply settings.
@@ -29,6 +31,16 @@ VENT_EXTERN_C VENT_API auto vent_engine_entry(const engine_config& config)
     log()->info("core", "initializing vent engine for '{}'...", config.app_id);
 
     parse_command_line(config.argc, config.argv);
+
+    system_registry registry;
+    if(!registry.initialize_all(config)) {
+        log()->error("core", "failed to initialize engine systems. exiting.");
+        thread_registry::unregister_thread();
+        return 1;
+    }
+
+    registry.shutdown_all();
+    thread_registry::unregister_thread();
 
     return 0;
 }
