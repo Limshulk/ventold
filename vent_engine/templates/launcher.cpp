@@ -3,8 +3,8 @@
 // ——————————————————————
 //
 // this is the default launcher for vent. it is intentionally minimalistic.
-// it loads the engine library, calls the engine entry point and passes
-// the configuration from the auto-generated build info header.
+// it loads the engine library, calls the engine entry point and passes the
+// configuration from the generated build info header.
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/platform/library.hpp>
@@ -17,7 +17,7 @@
     #define VENT_APP_ID vent_unknown
 #endif
 
-// helper macros for stringification of includes and token pasting.
+// helper macros for stringification and token pasting.
 #define VENT_STRINGIFY_IMPL(x) #x
 #define VENT_STRINGIFY(x) VENT_STRINGIFY_IMPL(x)
 #define VENT_CONCAT_IMPL(a, b) a##b
@@ -29,10 +29,11 @@
 
 namespace {
 
-/// @brief base name of the engine shared library without pre- or suffixes
+/// @brief base name of the engine shared library without prefix or suffix.
+/// @note usually, the library is called `libvent_engine.<EXT>`.
 constexpr const char* ENGINE_LIB_BASE = "vent_engine";
 
-/// @brief name of the engine main entry function
+/// @brief name of the engine main entry function.
 constexpr const char* ENGINE_MAIN_ENTRY = "vent_engine_entry";
 
 }  // namespace
@@ -49,17 +50,17 @@ auto main(int argc, char** argv) -> int {
     // load engine library.
     auto engine_handle = vent::lib::load_library(engine_path.c_str());
     if (engine_handle == vent::lib::INVALID_LIBRARY_HANDLE) {
-        std::print("[launcher] failed to load engine library: {}\n",
+        std::print("[launcher] error: failed to load engine library: {}\n",
                    vent::lib::get_last_error());
         return 1;
     }
 
-    // find engine main entry point.
-    auto engine_entry =
+    // find engine main function.
+    auto engine_main =
         vent::lib::get_library_symbol_as<vent::vent_engine_entry_fn>(
             engine_handle, ENGINE_MAIN_ENTRY);
-    if (engine_entry == nullptr) {
-        std::print("[launcher] error: main entry point '{}' not found.\n",
+    if (engine_main == nullptr) {
+        std::print("[launcher] error: main entry point `{}` not found.\n",
                    ENGINE_MAIN_ENTRY);
         vent::lib::unload_library(engine_handle);
         return 1;
@@ -79,9 +80,9 @@ auto main(int argc, char** argv) -> int {
                                 .argv         = argv};
 
     // fire up engine.
-    int result = engine_entry(config);
+    int result = engine_main(config);
 
-    // engine's over. clean up and exit.
+    // clean up and exit.
     std::printf(
         "\n[launcher] vent engine has exited. unloading engine library...\n");
     vent::lib::unload_library(engine_handle);

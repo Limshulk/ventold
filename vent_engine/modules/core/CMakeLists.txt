@@ -7,14 +7,14 @@ vent_create_module(
     NAME core
     SOURCES
         # vent sdk sources
-        src/accessors.cpp
+        src/_vent/accessors.cpp
         
         # core module sources
         src/vent_engine_entry.cpp
         
-        #src/event_bus.cpp
-        #src/main_loop.cpp
-        #src/plugin_manager.cpp
+        src/event_bus.cpp
+        src/main_loop.cpp
+        src/plugin_manager.cpp
         src/system_creator.cpp
         src/system_registry.cpp
 )

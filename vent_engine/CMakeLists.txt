@@ -51,7 +51,7 @@ add_subdirectory(modules)
 # --- plugins ---
 # each plugin becomes a shared library in sdk/plugins/.
 
-#add_subdirectory(plugins)
+add_subdirectory(plugins)
 
 # --- generate cmake config ---
 # creates vent-config.cmake and vent-targets.cmake in sdk/cmake/.

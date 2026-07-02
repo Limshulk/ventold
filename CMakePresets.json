@@ -84,7 +84,7 @@
             "name": "windows-debug",
             "displayName": "Windows Debug (GCC)",
             "inherits": "base-gcc",
-            "generator": "MinGW Makefiles",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/cmake-windows-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
@@ -94,7 +94,7 @@
             "name": "windows-release",
             "displayName": "Windows Release (GCC)",
             "inherits": "base-gcc",
-            "generator": "MinGW Makefiles",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/cmake-windows-release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
@@ -104,7 +104,7 @@
             "name": "windows-ship",
             "displayName": "Windows Ship (GCC)",
             "inherits": "base-gcc",
-            "generator": "MinGW Makefiles",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/cmake-windows-ship",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Ship"

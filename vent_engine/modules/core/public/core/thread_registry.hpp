@@ -4,7 +4,7 @@
 // thread registry.
 // ——————————————————————
 //
-// header-only registry that maps kernel-hashed (random) thread id's to nice
+// header-only registry that maps kernel-hashed (random) thread id's to friendly
 // 4-char names.
 // used for debugging purposes and by the log system to display the current
 // thread in a readable manner.
@@ -36,6 +36,7 @@ namespace vent {
 
 class thread_registry final {
 private:
+    // prevent instantiation.
     thread_registry()  = default;
     ~thread_registry() = default;
 
@@ -47,11 +48,11 @@ private:
     static inline std::unordered_map<u32, std::string> s_map;
 
     // we are not expecting many calls to this registry, so a blocking
-    // thread-safety mechanism is fine.
+    // thread-safety mechanism is fine
     static inline std::shared_mutex s_mutex;
 
     /// @brief get thread id based on platform definition. caches it for fast
-    /// access.
+    ///        access.
     /// @return cached thread id.
     static auto tid() -> u32 {
         static thread_local u32 id = get_current_thread_id();
@@ -70,7 +71,8 @@ public:
     static constexpr usize MAX_LEN = 4;
 
     /// @brief register the current thread with a name.
-    /// @param name name for this thread (should be exactly MAX_LEN-1 chars).
+    /// @param name name for this thread (must be exactly MAX_LEN-1 chars).
+    /// convention: 4 characters.
     static void register_thread(std::string_view name) {
         if (name.empty())
             return;

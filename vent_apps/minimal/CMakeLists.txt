@@ -10,12 +10,12 @@ vent_create_client(
     NAME minimal
     MODULES
         core
-        #log
-        #job
-        #platform
-        #renderer
+        log
+        job
+        platform
+        renderer
     PLUGINS
-        #vulkan_backend     # copied, loaded dynamically by renderer.
+        vulkan_backend     # copied, loaded dynamically by renderer.
     # STARTUP_PLUGINS     # (empty - no plugins need auto-loading).
     SOURCES
         src/minimal.cpp

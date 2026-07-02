@@ -10,7 +10,11 @@
 
 #include <_vent/vent_sdk.hpp>
 
+#include <algorithm>
+#include <concepts>
+#include <format>
 #include <source_location>
+#include <string>
 
 namespace vent {
 
@@ -24,9 +28,6 @@ enum class log_level : u8 {
     critical  ///< unrecoverable errors that lead to immediate failure.
 };
 
-/// @brief where log output appeares. to be extended. if new logger
-/// implementations add more outputs, maybe we should just stash them in a
-/// 'custom' enum tag?
 enum class log_channel : u8 {
     none    = 0,              ///< no output.
     console = 1 << 0,         ///< output to console only.
@@ -67,7 +68,6 @@ private:
     // --- main logging methods ---
     // —————————————————————————————————————————————————————————————————————————
     // accessible only by weird template wrappers in public section.
-    // implemented by the actual logger implementation.
 
     /// @brief log a message with the specified level (short format, no source
     /// location).

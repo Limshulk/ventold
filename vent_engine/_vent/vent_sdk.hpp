@@ -3,15 +3,12 @@
 // vent public sdk.
 // ——————————————————————
 //
-// general types and macros for vent sdk and vent engine.
+// general types and macros for the vent sdk and vent engine.
 
-// --- platform detetion ---
+// --- platform detection ---
 // —————————————————————————————————————————————————————————————————————————————
-// these macros are set by cmake.
-// as a fallback, we define them here.
-// warning: not using cmake is undefined behavior and
-// not tested.
-
+// these macros are usually set by cmake.
+// as a fallback, we define them here if for some reason cmake is not used.
 // defines one of:
 //   VENT_LINUX   - linux platform.
 //   VENT_WINDOWS - windows platform.
@@ -38,6 +35,7 @@
 // this defines the VENT_API macro for exporting / importing symbols.
 
 #ifdef VENT_WINDOWS
+    // static libraries on windows don't need __declspec decorations.
     #define VENT_API
     #define VENT_INTERNAL
 #else
@@ -66,7 +64,7 @@
 
 #define VENT_EXTERN_C extern "C"
 
-// --- forced inlines ---
+// --- force inline defines are compiler-dependent ---
 #if defined(_MSC_VER)
     #define VENT_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
@@ -90,7 +88,7 @@
     VENT_NO_COPY(class_name)          \
     VENT_NO_MOVE(class_name)
 
-// --- quick & dirty profiling with TIC and TOC ---
+// --- generic & simple profiling macro ---
 #include <chrono>
 #include <print>
 
@@ -135,18 +133,20 @@ using usize = std::size_t;
 using isize = std::ptrdiff_t;
 
 /// @brief cache line size for padding/alignment. this is cpu dependent, but
-/// usually 64 bit.
-/// we could check this with {$ getconf LEVEL1_DCACHE_LINESIZE} as a
-/// terminal call, but i don't bother with that. also, i have no idea
-/// how this works on windows.
+///        usually 64 bit.
+///        we could check this with {$ getconf LEVEL1_DCACHE_LINESIZE} as a
+///        terminal call, but i don't bother with that. also, i have no idea how
+///        this works on windows.
 constexpr auto CACHE_LINE = 64u;
 
 }  // namespace vent
 
 // --- engine entry point ---
 // —————————————————————————————————————————————————————————————————————————————
-// defines the engine entry point function that the launcher will call.
-// the default launcher loads libvent_engine.so, finds this entry point and
+// defines the engine entry point function that launchers call.
+// this is the main interface between the launcher executable and the engine.
+//
+// the default launcher loads libvent_engine.so, finds this entry point, and
 // calls it.
 
 namespace vent {
