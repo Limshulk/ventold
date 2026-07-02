@@ -36,6 +36,9 @@ system_registry::~system_registry() {
 }
 
 auto system_registry::initialize_all(const engine_config& config) -> bool {
+    log()->trace("system_registry",
+                 "system_registry::initialize_all() called.");
+
     if (_initialized) {
         log()->warn_f("system_registry", "already initialized.");
         return true;
@@ -60,7 +63,7 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
 
     log()->trace(
         "system_registry",
-        "created {} bootstrap and {} regular systems from modules.",
+        "summary: created {} bootstrap and {} regular systems from modules.",
         bootstrap_systems.size(),
         regular_systems.size());
     for (const auto& name : bootstrap_systems) {
@@ -99,33 +102,33 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
 
     // --- load plugins ---
     if (config.plugin_count > 0) {
-        log()->trace("system_registry",
-                     "loading {} plugins...",
-                     config.plugin_count);
+        log()->trace(
+            "system_registry", "loading {} plugins...", config.plugin_count);
 
         // load plugin libraries via job system for parallelism. each plugin's
         // static initializers register systems to the pending list.
         std::atomic<u32> load_failures {0};
 
-        job()->parallel_for(
-            0,
-            config.plugin_count,
-            [this, &config, &creator, &load_failures](u64 i) {
-                std::string plugin_name = config.plugins[i];
+        job()->parallel_for(0,
+                            config.plugin_count,
+                            [this, &config, &creator, &load_failures](u64 i) {
+                                std::string plugin_name = config.plugins[i];
 
-                // set thread-local context so static initializers know which
-                // plugin they belong to.
-                creator.set_loading_context(plugin_name);
+                                // set thread-local context so static
+                                // initializers know which plugin they belong
+                                // to.
+                                creator.set_loading_context(plugin_name);
 
-                bool ok = _plugin_manager.load(plugin_name);
+                                bool ok = _plugin_manager.load(plugin_name);
 
-                // clear context after load completes.
-                creator.set_loading_context("");
+                                // clear context after load completes.
+                                creator.set_loading_context("");
 
-                if (!ok) {
-                    load_failures.fetch_add(1, std::memory_order_relaxed);
-                }
-            });
+                                if (!ok) {
+                                    load_failures.fetch_add(
+                                        1, std::memory_order_relaxed);
+                                }
+                            });
 
         if (load_failures.load(std::memory_order_relaxed) > 0) {
             log()->error("system_registry", "failed to load required plugins.");
@@ -133,25 +136,38 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
         }
 
         // create plugin systems from pending registrations.
+        log()->trace("system_registry",
+                     "checking for new systems from plugins...");
         creator.create_from_pending(*this);
 
         // create the client (registered by plugin static initializers).
+        log()->trace("system_registry", "creating client...");
         if (!creator.create_client(*this)) {
             log()->error("system_registry", "no client registered by plugins.");
             return false;
         }
 
+        log()->trace("system_registry",
+                     "collecting all regular systems for initialization...");
         // rebuild regular systems list with new plugin systems + client.
         auto prev_count = regular_systems.size();
         regular_systems.clear();
         for (const auto& [name, entry] : _systems) {
             if (!dynamic_cast<ir_bootstrap*>(entry.instance.get()) &&
-                entry.state == system_state::pending)
+                entry.state == system_state::pending) {
                 regular_systems.push_back(name);
+                log()->trace("system_registry", "  - rs: {}.", name);
+                if (!_system_to_plugin[name].empty())
+                    log()->trace("system_registry",
+                                 "    from plugin: {}.",
+                                 _system_to_plugin[name]);
+            }
         }
 
         log()->trace("system_registry",
-                     "created {} additional regular systems from plugins.",
+                     "found {} regular systems of which {} regular systems "
+                     "came from plugins.",
+                     regular_systems.size(),
                      regular_systems.size() - prev_count);
     }
 
@@ -176,6 +192,11 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
                      result.failed);
         return false;
     }
+    
+    log()->trace("system_registry",
+                 "{} system(s) initialized successfully, {} awaiting events.",
+                 result.ready,
+                 result.awaiting);
 
     // cache role interfaces for main loop.
     cache_role_interfaces();
@@ -456,9 +477,8 @@ auto system_registry::add_system(const std::string& name,
                                  system_entry&&     entry,
                                  const std::string& source_plugin) -> bool {
     if (_systems.contains(name)) {
-        log()->error("system_registry",
-                     "duplicate system registration: '{}'.",
-                     name);
+        log()->error(
+            "system_registry", "duplicate system registration: '{}'.", name);
         return false;
     }
 
@@ -484,8 +504,7 @@ auto system_registry::get_entry(const std::string& name) -> system_entry* {
     return &it->second;
 }
 
-auto system_registry::get_all_system_names() const
-    -> std::vector<std::string> {
+auto system_registry::get_all_system_names() const -> std::vector<std::string> {
     std::vector<std::string> names;
     names.reserve(_systems.size());
     for (const auto& [name, entry] : _systems) {

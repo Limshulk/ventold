@@ -53,7 +53,8 @@ VENT_API auto register_pending_system(pending_entry&& entry) -> void {
 }
 
 VENT_API auto register_client_factory(client_factory_fn factory) -> void {
-    get_creator_instance().register_client(std::move(factory));
+    get_creator_instance().register_client(std::move(factory),
+                                           g_current_loading_plugin);
 }
 
 // --- system_creator implementation ---
@@ -72,13 +73,23 @@ auto system_creator::register_system(pending_entry&& entry) -> void {
     _pending_systems.push_back(std::move(entry));
 }
 
-auto system_creator::register_client(client_factory_fn factory) -> void {
+auto system_creator::register_client(client_factory_fn factory,
+                                     std::string       source_plugin) -> void {
     std::lock_guard lock(_pending_mutex);
-    _client_factory = std::move(factory);
+    _client_factory       = std::move(factory);
+    _client_source_plugin = std::move(source_plugin);
 }
 
 auto system_creator::create_from_pending(system_registry& registry) -> u32 {
     std::lock_guard lock(_pending_mutex);
+
+    if (_pending_systems.empty()) {
+        log()->trace("system_creator", "no pending systems to create.");
+        return 0;
+    }
+    log()->trace("system_creator",
+                 "called create_from_pending() with {} pending systems.",
+                 _pending_systems.size());
 
     u32 count = 0;
     for (auto& entry : _pending_systems) {
@@ -102,6 +113,13 @@ auto system_creator::create_from_pending(system_registry& registry) -> u32 {
         if (registry.add_system(name, std::move(se), entry.source_plugin)) {
             count++;
         }
+
+        log()->trace(
+            "system_creator",
+            "  [{}/{}]: pending system '{}' created and added to registry.",
+            count,
+            _pending_systems.size(),
+            name);
     }
 
     log()->trace("system_creator",
@@ -124,8 +142,6 @@ auto system_creator::create_client(system_registry& registry) -> bool {
     // create the client instance.
     auto client = _client_factory();
 
-    log()->trace("system_creator", "client created from pending registration.");
-
     // create system_entry for client.
     system_entry se;
     se.instance = std::move(client);
@@ -138,13 +154,17 @@ auto system_creator::create_client(system_registry& registry) -> bool {
     }
 
     // add to registry with name "client".
-    if (!registry.add_system("client", std::move(se), "")) {
+    if (!registry.add_system("client", std::move(se), _client_source_plugin)) {
         log()->error("system_creator", "failed to add client to registry.");
         return false;
     }
 
     // clear factory to prevent re-creation.
     _client_factory = nullptr;
+    _client_source_plugin.clear();
+
+    log()->trace("system_creator",
+                 "client created and added to registry as 'client'.");
     return true;
 }
 
@@ -165,10 +185,10 @@ auto system_creator::categorize_systems(system_registry&             registry,
     }
 }
 
-auto system_creator::get_startable_systems(
-    system_registry&             registry,
-    std::span<const std::string> names,
-    bool                         include_bootstrap) -> std::vector<std::string> {
+auto system_creator::get_startable_systems(system_registry& registry,
+                                           std::span<const std::string> names,
+                                           bool include_bootstrap)
+    -> std::vector<std::string> {
     std::vector<std::string> startable;
 
     // if no names provided, get all systems from registry.
@@ -198,6 +218,10 @@ auto system_creator::get_startable_systems(
 auto system_creator::initialize_bootstrap(init_context&                ctx,
                                           std::span<const std::string> names)
     -> bool {
+    log()->trace(
+        "system_creator", "initializing {} bootstrap systems...", names.size());
+
+    int count = 0;
     for (const auto& name : names) {
         auto* entry = ctx.registry.get_entry(name);
         if (!entry) {
@@ -207,6 +231,13 @@ auto system_creator::initialize_bootstrap(init_context&                ctx,
                 ctx.on_failed(name);
             return false;
         }
+        count++;
+
+        log()->trace("system_creator",
+                     "  [{}/{}]: initializing bootstrap system '{}'...",
+                     count,
+                     names.size(),
+                     name);
 
         // bootstrap systems use single-stage initialization.
         auto result = entry->instance->on_initialization();
@@ -225,9 +256,16 @@ auto system_creator::initialize_bootstrap(init_context&                ctx,
         if (ctx.on_ready)
             ctx.on_ready(name);
 
-        log()->trace(
-            "system_creator", "bootstrap system '{}' initialized.", name);
+        log()->trace("system_creator",
+                     "  [{}/{}]: bootstrap system '{}' initialized.",
+                     count,
+                     names.size(),
+                     name);
     }
+
+    log()->trace("system_creator",
+                 "all {} bootstrap systems initialized successfully.",
+                 names.size());
 
     return true;
 }
@@ -286,8 +324,8 @@ auto system_creator::initialize_regular(init_context&                ctx,
     };
 
     // helper to fire a system's initialization on job thread.
-    // note: captures `this` for initialize_one, but that's safe as this
-    // function blocks until all inits complete.
+    // captures `this` for initialize_one, but that's safe as this function
+    // blocks until all inits complete.
     auto fire_init = [this, &ctx, &fail_count, &on_first_pass](
                          const std::string& sys_name) {
         ctx.jobs->fire([this, &ctx, sys_name, &fail_count, &on_first_pass]() {
@@ -324,6 +362,8 @@ auto system_creator::initialize_regular(init_context&                ctx,
     std::vector<std::string> startup_systems;
 
     for (const auto& name : names) {
+        log()->trace(
+            "system_creator", "checking dependencies for system '{}'...", name);
         auto* entry = ctx.registry.get_entry(name);
         if (!entry)
             continue;
@@ -331,32 +371,52 @@ auto system_creator::initialize_regular(init_context&                ctx,
         // remove already-ready dependencies.
         auto it = entry->pending_dependencies.begin();
         while (it != entry->pending_dependencies.end()) {
-            if (ctx.registry.is_ready(*it)) {
+            const auto& dep = *it;
+            if (ctx.registry.is_ready(dep)) {
+                log()->trace(
+                    "system_creator", "  dependency '{}' already ready.", dep);
                 it = entry->pending_dependencies.erase(it);
             } else {
+                log()->trace(
+                    "system_creator", "  dependency '{}' pending.", dep);
                 ++it;
             }
         }
 
         if (entry->pending_dependencies.empty()) {
             startup_systems.push_back(name);
+            log()->trace("system_creator",
+                         "  system '{}' ready to start initialization.",
+                         name);
         } else {
             // subscribe to dependency ready events.
             for (const auto& dep : entry->pending_dependencies) {
                 std::string event_name = "system.ready." + dep;
-                auto        sub_id     = ctx.events->subscribe(
+                log()->trace("system_creator",
+                             "  subscribing to dependency event '{}'.",
+                             event_name);
+                auto sub_id = ctx.events->subscribe(
                     event_name,
                     [&ctx, name, dep, &fire_init](std::string_view,
                                                   void*) mutable {
                         auto* e = ctx.registry.get_entry(name);
                         if (!e)
                             return;
+                        log()->trace("system_creator",
+                                     "  dependency '{}' ready event recieved "
+                                     "for system '{}'.",
+                                     dep,
+                                     name);
 
                         // remove this dependency.
                         std::erase(e->pending_dependencies, dep);
 
                         // if all deps ready, fire initialization.
                         if (e->pending_dependencies.empty()) {
+                            log()->trace("system_creator",
+                                         "  all dependencies ready for system "
+                                         "'{}', starting initialization.",
+                                         name);
                             fire_init(name);
                         }
                     });

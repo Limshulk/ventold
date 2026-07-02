@@ -10,8 +10,9 @@
 
 #include <_vent/vent_sdk.hpp>
 
-#include <algorithm>  // std::move
-#include <bit>        // std::bit_ceil
+#include <algorithm>
+#include <bit>
+#include <memory>
 
 namespace vent {
 
@@ -72,9 +73,9 @@ public:
     /// @param bottom bottom index (inclusive).
     /// @param top top index (exclusive).
     /// @return pointer to the new, larger circular array (caller is owning).
-    auto grow(u64 bottom, u64 top) -> circular_array* {
+    auto grow(u64 bottom, u64 top) -> std::unique_ptr<circular_array<T>> {
         // create new array with double capacity.
-        circular_array* new_array = new circular_array(_capacity * 2);
+        auto new_array = std::make_unique<circular_array<T>>(_capacity * 2);
 
         // copy existing items to new array.
         for (u64 i = bottom; i < top; ++i)

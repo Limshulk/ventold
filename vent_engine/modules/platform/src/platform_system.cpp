@@ -210,7 +210,7 @@ auto platform_system::platform_thread_main(std::promise<bool> ready) -> void {
 
     // initialize glfw.
     if (!glfwInit()) {
-        log()->error("platform", "glfwInit() failed");
+        log()->error("platform", "glfwInit() failed.");
         ready.set_value(false);
         return;
     }
@@ -227,10 +227,11 @@ auto platform_system::platform_thread_main(std::promise<bool> ready) -> void {
         case GLFW_PLATFORM_COCOA: platform_str = "cocoa"; break;
     }
     log()->trace(
-        "platform", "platform initialized (backend: {})", platform_str);
+        "platform", "platform initialized (backend: {}).", platform_str);
 
     ready.set_value(true);
 
+    // blocking main platform loop.
     while (_running.load(std::memory_order_acquire)) {
         process_commands();
         glfwWaitEventsTimeout(0.016);
@@ -252,7 +253,7 @@ auto platform_system::platform_thread_main(std::promise<bool> ready) -> void {
         _glfw_initialized = false;
     }
 
-    log()->trace("platform", "platform thread stopped");
+    log()->trace("platform", "platform thread stopped.");
     thread_registry::unregister_thread();
 }
 
@@ -271,7 +272,7 @@ auto platform_system::get_platform_type() const -> platform_type {
 
 auto platform_system::create_window(const window_desc& desc) -> ic_window* {
     log()->trace("platform",
-                 "creating window '{}' ({}x{})",
+                 "creating window '{}' ({}x{}) on platform thread.",
                  desc.title,
                  desc.width,
                  desc.height);
@@ -281,7 +282,7 @@ auto platform_system::create_window(const window_desc& desc) -> ic_window* {
 
         if (!win->create()) {
             log()->error(
-                "platform", "failed to create window '{}'", desc.title);
+                "platform", "failed to create window '{}'.", desc.title);
             return nullptr;
         }
 
@@ -292,7 +293,7 @@ auto platform_system::create_window(const window_desc& desc) -> ic_window* {
             win->set_main(true);
             _main_window = win.get();
             log()->trace(
-                "platform", "window '{}' set as main window", desc.title);
+                "platform", "window '{}' set as main window.", desc.title);
         }
 
         ic_window* handle = win.get();
@@ -303,7 +304,7 @@ auto platform_system::create_window(const window_desc& desc) -> ic_window* {
         // window_created_event event_data{.window = handle};
         // events()->publish("window.created", &event_data);
 
-        log()->trace("platform", "window created: '{}'", desc.title);
+        log()->trace("platform", "window created: '{}'.", desc.title);
         return handle;
     });
 }
@@ -327,7 +328,7 @@ auto platform_system::destroy_window(ic_window* handle) -> void {
 
             if (it == _windows.end()) {
                 log()->trace("platform",
-                             "destroy_window: window already gone, ignoring");
+                             "destroy_window: window already gone, ignoring.");
                 return;
             }
 
@@ -360,7 +361,7 @@ auto platform_system::destroy_window(ic_window* handle) -> void {
 
         destroyed_window.reset();
 
-        log()->trace("platform", "window destroyed: '{}'", title);
+        log()->trace("platform", "window destroyed: '{}'.", title);
     });
 }
 
@@ -377,7 +378,7 @@ auto platform_system::get_window_count() const -> u32 {
 auto platform_system::set_close_policy(window_close_policy policy) -> void {
     _close_policy.store(policy, std::memory_order_release);
     log()->trace(
-        "platform", "close policy set to {}", static_cast<int>(policy));
+        "platform", "window close policy set to {}.", static_cast<int>(policy));
 }
 
 auto platform_system::poll_events() -> void {

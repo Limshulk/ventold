@@ -28,6 +28,7 @@
 #include <atomic>
 #include <optional>
 #include <utility>
+#include <memory>
 #include <vector>
 
 namespace vent {
@@ -44,8 +45,8 @@ private:
     // reduce false sharing.
 
     /// @brief the actual circular storage container.
-    circular_array<T>*              _array;
-    std::vector<circular_array<T>*> _retired_arrays;
+    std::unique_ptr<circular_array<T>>              _array;
+    std::vector<std::unique_ptr<circular_array<T>>> _retired_arrays;
 
 #ifdef VENT_DEBUG
     std::atomic<std::thread::id> _owner_thread_id {std::thread::id()};
@@ -53,14 +54,9 @@ private:
 
 public:
     explicit work_stealing_deque(u32 capacity = 256)
-        : _array(new circular_array<T>(capacity)) {}
+        : _array(std::make_unique<circular_array<T>>(capacity)) {}
 
-    ~work_stealing_deque() {
-        delete _array;
-        for (auto* arr : _retired_arrays) {
-            delete arr;
-        }
-    }
+    ~work_stealing_deque() = default;
 
 #ifdef VENT_DEBUG
     /// set owner thread id from the actual worker thread (call at thread start).
@@ -100,19 +96,18 @@ public:
         u64 b = _bottom.load(std::memory_order_relaxed);
         u64 t = _top.load(std::memory_order_relaxed);
 
-        circular_array<T>* a = _array;
+        circular_array<T>* a = _array.get();
 
         // check if full.
         if (b - t >= a->capacity()) {
             // need to grow!
-            circular_array<T>* old = _array;
-            _array                 = old->grow(t, b);
-            _retired_arrays.push_back(old);
+            auto new_array = a->grow(t, b);
+            _retired_arrays.push_back(std::move(_array));
+            _array = std::move(new_array);
             if (_retired_arrays.size() > 8) {
-                delete _retired_arrays.front();
                 _retired_arrays.erase(_retired_arrays.begin());
             }
-            a = _array;
+            a = _array.get();
         }
         // place item in array.
         a->put(b, std::move(item));
@@ -152,7 +147,7 @@ public:
         }
 
         u64                b = bottom_val - 1;
-        circular_array<T>* a = _array;
+        circular_array<T>* a = _array.get();
         _bottom.store(b, std::memory_order_relaxed);
 
         std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -189,7 +184,7 @@ public:
         u64 b = _bottom.load(std::memory_order_acquire);
 
         if (t < b) [[likely]] {
-            circular_array<T>* a    = _array;
+            circular_array<T>* a    = _array.get();
             T                  item = a->get(t);
 
             if (!_top.compare_exchange_strong(t,

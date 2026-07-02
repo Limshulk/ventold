@@ -47,14 +47,14 @@ public:
 
             auto* window = vent::platform()->create_window(desc);
             if (!window) {
-                vent::log()->error("client", "failed to create window {}", i);
+                vent::log()->error("client", "failed to create window {}.", i);
                 return false;
             }
 
             window->show();
             _windows.push_back(window);
             vent::log()->info("client",
-                              "created window {} of 3: '{}'",
+                              "created window {} of 3: '{}'.",
                               i + 1,
                               window->get_title());
         }
@@ -71,9 +71,6 @@ public:
     auto on_update(vent::f64 delta_time) -> void override {
         _frame_count++;
         _elapsed += delta_time;
-
-        // note: no close handling needed here. engine detects main window
-        //       close and exits the loop automatically.
     }
 
     auto on_shutdown() -> void override {

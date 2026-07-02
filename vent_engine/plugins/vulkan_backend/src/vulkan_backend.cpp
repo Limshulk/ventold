@@ -9,6 +9,7 @@
 #include <vulkan_backend.hpp>
 
 #include <_vent/accessors.hpp>
+#include <vulkan_types.hpp>
 
 #include <core/system/registration.hpp>
 
@@ -35,6 +36,21 @@ auto vulkan_backend::initialize() -> bool {
     // todo: create vulkan instance (next tutorial chapter).
     // todo: pick physical device.
     // todo: create logical device and queues.
+    // todo: create surface via platform module.
+    // _surface = platform()->create_vulkan_surface(_instance);
+
+    if (!pick_physical_device()) {
+        log()->error("vulkan", "failed to pick suitable physical device");
+        return false;
+    }
+
+    if (!create_logical_device()) {
+        log()->error("vulkan", "failed to create logical device");
+        return false;
+    }
+
+    // todo: create swapchain.
+    // todo: create command pools and sync objects.
 
     log()->info("vulkan", "vulkan backend initialized.");
     return true;
@@ -42,6 +58,11 @@ auto vulkan_backend::initialize() -> bool {
 
 auto vulkan_backend::shutdown() -> void {
     log()->info("vulkan", "shutting down vulkan backend...");
+
+    // wait for the logical device to be idle before destroying resources.
+    if (_device) {
+        _device.waitIdle();
+    }
 
     // raii handles cleanup automatically in reverse declaration order.
     // explicit cleanup only needed for non-raii resources.
@@ -142,6 +163,39 @@ auto vulkan_backend::create_instance() -> bool {
 
     log()->trace("vulkan", "vulkan instance created.");
     return true;
+}
+
+auto vulkan_backend::pick_physical_device() -> bool {
+    log()->trace("vulkan", "picking physical device...");
+
+    auto physical_devices = vk::raii::PhysicalDevices(_instance);
+    if (physical_devices.empty()) {
+        log()->error("vulkan", "failed to find GPUs with vulkan support");
+        return false;
+    }
+
+    // todo: implement logic to find the best suitable device.
+    // for now, we just pick the first one.
+    _physical_device = std::move(physical_devices.front());
+
+    auto props = _physical_device.getProperties();
+    log()->info("vulkan", "selected physical device: {}", props.deviceName.data());
+
+    // todo: find queue families.
+    // queue_family_indices indices = find_queue_families(_physical_device);
+
+    return true;
+}
+
+auto vulkan_backend::create_logical_device() -> bool {
+    log()->trace("vulkan", "creating logical device...");
+
+    // todo: find queue families for the selected physical device.
+    // todo: create vk::DeviceQueueCreateInfo structs.
+    // todo: specify required device features (e.g., for anisotropy).
+    // todo: create the vk::raii::Device.
+    // todo: get queue handles from the logical device.
+    return false;  // return true on success
 }
 
 }  // namespace vent

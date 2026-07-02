@@ -8,6 +8,8 @@
 #include <_vent/accessors.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 namespace vent {
 
@@ -82,6 +84,9 @@ auto main_loop::set_runnables(std::vector<ir_runnable*> runnables) -> void {
 
 // --- loop control ---
 // —————————————————————————————————————————————————————————————————————————————
+
+// this call is blocking until the application exits.
+// note that ui and windows are not handled here, but in P:UI thread.
 
 auto main_loop::run() -> int {
     if (!_client) {

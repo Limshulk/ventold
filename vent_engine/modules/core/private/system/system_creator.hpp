@@ -112,6 +112,9 @@ private:
     /// @brief pending client factory.
     client_factory_fn _client_factory;
 
+    /// @brief source plugin for the client.
+    std::string _client_source_plugin;
+
 public:
     // --- plugin loading context ---
     // —————————————————————————————————————————————————————————————————————————
@@ -137,7 +140,7 @@ public:
     /// @brief register a client factory.
     /// called by VENT_CLIENT macro during static initialization.
     /// @param factory function that creates the client instance.
-    auto register_client(client_factory_fn factory) -> void;
+    auto register_client(client_factory_fn factory, std::string source_plugin) -> void;
 
     // --- system creation ---
     // —————————————————————————————————————————————————————————————————————————

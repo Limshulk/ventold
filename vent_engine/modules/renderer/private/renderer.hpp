@@ -10,6 +10,7 @@
 #include <renderer/interfaces/i_renderer.hpp>
 #include <renderer/interfaces/i_render_backend.hpp>
 
+#include <_vent/accessors.hpp>
 #include <_vent/system/system_base.hpp>
 #include <_vent/interfaces/ir_dependencies.hpp>
 
@@ -40,6 +41,7 @@ public:
 
     [[nodiscard]]
     auto on_initialization(i32 stage = 0) -> initialization_result override {
+        log()->trace("renderer", "renderer_system::on_initialization(stage={})", stage);
         switch(stage) {
             case 0: return initialize_s0();
             default: return initialization_result::failed();
