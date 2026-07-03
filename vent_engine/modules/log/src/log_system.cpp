@@ -57,7 +57,7 @@ auto log_system::initialize() -> bool {
 
     // start the worker thread.
     _running.store(true, std::memory_order_release);
-    _worker_thread = std::thread([this]() {
+    _worker_thread = thread_registry::spawn_thread("VLOG", [this]() {
         worker_thread_func();
     });
 
@@ -71,17 +71,17 @@ auto log_system::shutdown() -> void {
     if (!_initialized.load(std::memory_order_relaxed))
         return;  // not initialized.
 
-    // signal worker thread to stop.
-    _running.store(false, std::memory_order_release);
-
-    // wait for worker thread to finish.
-    if (_worker_thread.joinable())
-        _worker_thread.join();
-
     // write session end banner.
     write_session_end_banner();
 
-    // close log file.
+    // signal worker thread to stop.
+    _running.store(false, std::memory_order_release);
+    _semaphore.release();
+
+    if (_worker_thread.joinable()) {
+        _worker_thread.join();
+    }
+
     close_log_file();
 
     _initialized.store(false, std::memory_order_release);
@@ -89,18 +89,18 @@ auto log_system::shutdown() -> void {
 
 log_system::~log_system() {
     // if the worker thread is still running, we need to stop it.
+    _running.store(false, std::memory_order_release);
+    _semaphore.release();
+
     if (_worker_thread.joinable()) {
-        _running.store(false, std::memory_order_release);
-        _semaphore.release();  // wake up worker to check shutdown flag.
         _worker_thread.join();
     }
 }
 
 // todo: this fully formats the message on caller's thread. think about passing
 // todo: raw data & format on worker thread for less overhead.
-auto log_system::message(log_level   lvl,
-                         const char* module,
-                         const char* msg) -> void {
+auto log_system::message(log_level lvl, const char* module, const char* msg)
+    -> void {
     if (!_initialized.load(std::memory_order_relaxed))
         return;
 
@@ -112,14 +112,14 @@ auto log_system::message(log_level   lvl,
 
     // create log entry.
     log_entry entry;
-    entry.lvl            = lvl;
-    entry.has_source_loc = false;
-    entry.line           = 0;
-    entry.file[0]        = '\0';
-    entry.function[0]    = '\0';
-    safe_strncpy(entry.thread_name,
-                 sizeof(entry.thread_name),
-                 get_current_thread_name());
+    entry.lvl               = lvl;
+    entry.has_source_loc    = false;
+    entry.line              = 0;
+    entry.file[0]           = '\0';
+    entry.function[0]       = '\0';
+    std::string thread_name = get_current_thread_name();
+    safe_strncpy(
+        entry.thread_name, sizeof(entry.thread_name), thread_name.c_str());
 
     // capture timestamp now (when the log was called, not when it's written).
     get_timestamp(entry.timestamp, sizeof(entry.timestamp));
@@ -145,7 +145,8 @@ auto log_system::message(log_level   lvl,
         // for critical messages, block until the message is written.
         // the app may crash right after, so we need to ensure it's flushed.
         if (lvl == log_level::critical) {
-            u64 target = _critical_pushed.fetch_add(1, std::memory_order_relaxed) + 1;
+            u64 target =
+                _critical_pushed.fetch_add(1, std::memory_order_relaxed) + 1;
             wait_for_critical(target);
         }
     }
@@ -169,12 +170,12 @@ auto log_system::message_full(log_level   lvl,
 
     // create log entry.
     log_entry entry;
-    entry.lvl            = lvl;
-    entry.has_source_loc = true;
-    entry.line           = line;
-    safe_strncpy(entry.thread_name,
-                 sizeof(entry.thread_name),
-                 get_current_thread_name());
+    entry.lvl               = lvl;
+    entry.has_source_loc    = true;
+    entry.line              = line;
+    std::string thread_name = get_current_thread_name();
+    safe_strncpy(
+        entry.thread_name, sizeof(entry.thread_name), thread_name.c_str());
 
     // copy strings (safely, with truncation).
 #if defined(_MSC_VER)
@@ -210,7 +211,8 @@ auto log_system::message_full(log_level   lvl,
         // for critical messages, block until the message is written.
         // the app may crash right after, so we need to ensure it's flushed.
         if (lvl == log_level::critical) {
-            u64 target = _critical_pushed.fetch_add(1, std::memory_order_relaxed) + 1;
+            u64 target =
+                _critical_pushed.fetch_add(1, std::memory_order_relaxed) + 1;
             wait_for_critical(target);
         }
     }
@@ -235,8 +237,8 @@ auto log_system::enable_console_colors() -> void {
 #endif
 }
 
-auto log_system::get_current_thread_name() -> const char* {
-    return thread_registry::get_name().c_str();
+auto log_system::get_current_thread_name() -> std::string {
+    return thread_registry::get_name();
 }
 // get current date as YYYY_MM_DD string (for file names).
 auto log_system::get_current_date_string() -> std::string {
@@ -305,8 +307,8 @@ auto log_system::get_session_timestamp_string() -> std::string {
                        static_cast<int>(now_ms.count()));
 }
 
-auto log_system::build_log_file_path(const std::string& date,
-                                     int index) const -> std::string {
+auto log_system::build_log_file_path(const std::string& date, int index) const
+    -> std::string {
     namespace fs = std::filesystem;
     if (index == 0) {
         return (fs::path(_config.log_dir) /
@@ -538,7 +540,7 @@ auto log_system::wait_for_critical(u64 target_count) -> void {
     // use a simple spin with yield to avoid burning CPU while waiting.
     // timeout after 1 second to prevent infinite hang if something goes wrong.
     constexpr u32 MAX_ITERATIONS = 10000;  // ~1 second with 100us sleeps.
-    u32 iterations = 0;
+    u32           iterations     = 0;
 
     while (_critical_processed.load(std::memory_order_acquire) < target_count) {
         if (++iterations > MAX_ITERATIONS) {
@@ -550,13 +552,6 @@ auto log_system::wait_for_critical(u64 target_count) -> void {
 }
 
 auto log_system::worker_thread_func() -> void {
-    // register this thread in the central registry.
-    thread_registry::register_thread("VLOG");
-
-    // name this thread for profiling and debugging.
-#ifdef __linux__
-    pthread_setname_np(pthread_self(), "vent:log");
-#endif
 
     while (_running.load(std::memory_order_relaxed)) {
         // wait for signal (or timeout to check _running).
@@ -571,9 +566,6 @@ auto log_system::worker_thread_func() -> void {
     // flush remaining entries on shutdown.
     while (auto maybe = _queue.try_pop())
         write_entry(*maybe);
-
-    // unregister thread before exit.
-    thread_registry::unregister_thread();
 }
 
 }  // namespace vent

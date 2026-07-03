@@ -85,9 +85,10 @@ public:
 
     /// @brief system initialization. forwards to on_initialize().
     [[nodiscard]]
-    auto on_initialization(i32 /*stage*/) -> initialization_result override {
-        return on_initialize() ? initialization_result::complete()
-                               : initialization_result::failed();
+    auto on_initialization(i32 /*stage*/)
+        -> system_initialization_result override {
+        return on_initialize() ? system_initialization_result::complete()
+                               : system_initialization_result::failed();
     }
 
     // --- ir_client implementation ---

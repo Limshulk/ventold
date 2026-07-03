@@ -86,17 +86,19 @@ private:
     // --- ic_log implementation ---
     // —————————————————————————————————————————————————————————————————————————
 
-    auto message(log_level   lvl,
-                 const char* module,
-                 const char* msg) -> void override {
+    auto message(log_level lvl, const char* module, const char* msg)
+        -> void override {
 #if !defined(VENT_DEBUG)
         // skip trace/debug in release.
         if (lvl <= log_level::debug)
             return;
 #endif
+        auto now = std::chrono::floor<std::chrono::milliseconds>(
+            std::chrono::system_clock::now());
 
-        // format: [LEVEL] THREAD | [module] message.
-        std::println("{}[{}]{} {:>4} | [{}] {}",
+        // format: [HH:MM:SS:sss] [LEVEL] THREAD | [module] message.
+        std::println("[{:%H:%M:%S}] {}[{}]{} {:>4} | [{}] {}",
+                     now,
                      level_color(lvl),
                      level_name(lvl),
                      reset_color(),

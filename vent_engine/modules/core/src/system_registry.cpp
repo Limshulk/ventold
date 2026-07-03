@@ -192,7 +192,7 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
                      result.failed);
         return false;
     }
-    
+
     log()->trace("system_registry",
                  "{} system(s) initialized successfully, {} awaiting events.",
                  result.ready,
@@ -210,22 +210,43 @@ auto system_registry::run_main_loop() -> int {
 }
 
 auto system_registry::shutdown_all() -> void {
+    std::vector<std::string> safe_order;
+    {
+        std::lock_guard lock(_init_order_mutex);
+        safe_order = _init_order;
+    }
+
     // shutdown fully initialized systems in reverse init order.
-    for (auto it = _init_order.rbegin(); it != _init_order.rend(); ++it) {
-        auto& entry = _systems[*it];
+    for (auto it = safe_order.rbegin(); it != safe_order.rend(); ++it) {
+        std::string name = *it;
+        log()->trace("system_registry",
+                     "shutdown_all(): preparing to shut down '{}'",
+                     name);
+
+        auto entry_it = _systems.find(name);
+        if (entry_it == _systems.end()) {
+            log()->error("system_registry",
+                         "shutdown_all: system '{}' not found in registry map! "
+                         "skipping.",
+                         name);
+            continue;
+        }
+
+        auto& entry = entry_it->second;
         if (entry.is_ready()) {
             if (_event) {
-                _event->publish("system.shutdown." + *it);
+                _event->publish("system.shutdown." + name);
             }
-            log()->trace(
-                "system_registry", "shutting down system '{}'...", *it);
             entry.instance->on_shutdown();
+            log()->trace("system_registry",
+                         "shutdown_all(): system '{}' shutdown complete.",
+                         name);
             entry.state = system_state::pending;
         }
     }
 
     // shutdown partially initialized systems (awaiting events but never
-    // completed). unlikely in practice, but handles edge cases.
+    // completed). should not happen, i don't even know if it works.
     for (auto& [name, entry] : _systems) {
         if (entry.state == system_state::awaiting_event) {
             for (auto& [event_name, sub_id] : entry.event_subscriptions) {
@@ -261,23 +282,30 @@ auto system_registry::shutdown_all() -> void {
 
 auto system_registry::get_interface_ptr(std::type_info const& interface_type)
     -> void* {
-    auto it = _interfaces.find(std::type_index(interface_type));
-    if (it == _interfaces.end())
-        return nullptr;
-    return it->second.first;
+    // TODO(#8): type_info::name() string comparison is a workaround for
+    // cross-DLL RTTI on Windows. The proper fix is a string-based interface
+    // ID system where each interface declares a static constexpr ID string.
+    for (const auto& [type_idx, data] : _interfaces) {
+        if (std::string_view(type_idx.name()) == interface_type.name() || type_idx == std::type_index(interface_type)) {
+            return data.first;
+        }
+    }
+    return nullptr;
 }
 
 auto system_registry::get_interface_ptr_if_ready(
     std::type_info const& interface_type) -> void* {
-    auto it = _interfaces.find(std::type_index(interface_type));
-    if (it == _interfaces.end())
-        return nullptr;
-
-    const auto& sys_name = it->second.second;
-    auto        sys_it   = _systems.find(sys_name);
-    if (sys_it == _systems.end() || !sys_it->second.is_ready())
-        return nullptr;
-    return it->second.first;
+    // TODO(#8): Same here, type_info::name() string comparison is a workaround.
+    for (const auto& [type_idx, data] : _interfaces) {
+        if (std::string_view(type_idx.name()) == interface_type.name() || type_idx == std::type_index(interface_type)) {
+            const auto& sys_name = data.second;
+            auto        sys_it   = _systems.find(sys_name);
+            if (sys_it != _systems.end() && sys_it->second.is_ready()) {
+                return data.first;
+            }
+        }
+    }
+    return nullptr;
 }
 
 auto system_registry::has_role_impl(std::string_view      system_name,

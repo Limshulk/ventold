@@ -242,7 +242,7 @@ auto system_creator::initialize_bootstrap(init_context&                ctx,
         // bootstrap systems use single-stage initialization.
         auto result = entry->instance->on_initialization();
 
-        if (result.state == initialization_result::action::failed) {
+        if (result.state == system_initialization_result::action::failed) {
             log()->error("system_creator",
                          "bootstrap system '{}' failed to initialize.",
                          name);
@@ -272,10 +272,10 @@ auto system_creator::initialize_bootstrap(init_context&                ctx,
 
 auto system_creator::initialize_one(system_registry&   registry,
                                     const std::string& name)
-    -> initialization_result::action {
+    -> system_initialization_result::action {
     auto* entry = registry.get_entry(name);
     if (!entry) {
-        return initialization_result::action::failed;
+        return system_initialization_result::action::failed;
     }
 
     // run initialization loop until complete, failed, or awaiting events.
@@ -283,19 +283,19 @@ auto system_creator::initialize_one(system_registry&   registry,
         auto result = entry->instance->on_initialization(entry->stage);
 
         switch (result.state) {
-            case initialization_result::action::proceed:
+            case system_initialization_result::action::proceed:
                 entry->stage++;
                 continue;
 
-            case initialization_result::action::await_event:
+            case system_initialization_result::action::await_event:
                 entry->pending_events = std::move(result.events);
-                return initialization_result::action::await_event;
+                return system_initialization_result::action::await_event;
 
-            case initialization_result::action::complete:
-                return initialization_result::action::complete;
+            case system_initialization_result::action::complete:
+                return system_initialization_result::action::complete;
 
-            case initialization_result::action::failed:
-                return initialization_result::action::failed;
+            case system_initialization_result::action::failed:
+                return system_initialization_result::action::failed;
         }
     }
 }
@@ -332,20 +332,20 @@ auto system_creator::initialize_regular(init_context&                ctx,
             auto outcome = initialize_one(ctx.registry, sys_name);
 
             switch (outcome) {
-                case initialization_result::action::complete:
+                case system_initialization_result::action::complete:
                     ctx.registry.mark_system_ready(sys_name);
                     if (ctx.on_ready)
                         ctx.on_ready(sys_name);
                     on_first_pass();
                     break;
 
-                case initialization_result::action::await_event:
+                case system_initialization_result::action::await_event:
                     // system is waiting for events. first pass is done.
                     // todo: setup event subscriptions for continuation.
                     on_first_pass();
                     break;
 
-                case initialization_result::action::failed:
+                case system_initialization_result::action::failed:
                     ctx.registry.mark_system_failed(sys_name);
                     if (ctx.on_failed)
                         ctx.on_failed(sys_name);

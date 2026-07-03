@@ -3,41 +3,29 @@
     "configurations": [
         {
             "name": "Debug with CMake (ASYNC)",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
             "args": [],
-            "stopAtEntry": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe",
-            "externalConsole": false,
-            "setupCommands": [
-                {
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ],
+            "env": {
+                "DISABLE_VULKAN_OBS_CAPTURE": "1"
+            },
+            "preLaunchTask": "CMake: build"
         },
         {
             "name": "Debug with CMake (SYNC)",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
             "program": "${command:cmake.launchTargetPath}",
             "cwd": "${workspaceFolder}",
             "args": [
                 "--no_async"
             ],
-            "stopAtEntry": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe",
-            "externalConsole": false,
-            "setupCommands": [
-                {
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
+            "env": {
+                "DISABLE_VULKAN_OBS_CAPTURE": "1"
+            },
+            "preLaunchTask": "CMake: build"
         }
     ]
 }

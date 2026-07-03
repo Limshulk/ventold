@@ -13,7 +13,8 @@ public:
     /// @brief declare systems this client depends on.
     [[nodiscard]]
     auto dependencies() const -> std::span<const std::string_view> override {
-        static constexpr std::string_view deps[] = {"vent.platform_system"};
+        static constexpr std::string_view deps[] = {"vent.platform_system",
+                                                    "vent.renderer_system"};
         return deps;
     }
 
@@ -71,9 +72,32 @@ public:
     auto on_update(vent::f64 delta_time) -> void override {
         _frame_count++;
         _elapsed += delta_time;
+        if (_frame_count == 60) {
+            vent::window_desc desc;
+            desc.title    = std::string("vent - delayed window");
+            desc.width    = 1920;
+            desc.height   = 1080;
+            desc.style    = vent::window_style::standard;
+            desc.renderer = vent::renderer_api::vulkan;
+            _windows.push_back(vent::platform()->create_window(desc));
+            _windows.back()->show();
+        }
+
+        // render to all windows
+        for (auto* window : _windows) {
+            if (vent::renderer()->begin_frame(window)) {
+                // ... render commands would go here ...
+                vent::renderer()->end_frame(window);
+            }
+        }
+
+        if (_frame_count == 180) {
+            request_exit();
+        }
     }
 
     auto on_shutdown() -> void override {
+        vent::log()->trace("client", "minimal_client::on_shutdown() called");
         // unsubscribe from events (cleanup).
         // if (_resize_sub != vent::INVALID_SUBSCRIPTION) {
         //     vent::events()->unsubscribe(_resize_sub);

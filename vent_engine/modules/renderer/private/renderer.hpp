@@ -14,6 +14,8 @@
 #include <_vent/system/system_base.hpp>
 #include <_vent/interfaces/ir_dependencies.hpp>
 
+#include <mutex>
+
 namespace vent {
 
 // --- forward declarations ---
@@ -40,12 +42,13 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0) -> initialization_result override {
-        log()->trace("renderer", "renderer_system::on_initialization(stage={})", stage);
-        switch(stage) {
-            case 0: return initialize_s0();
-            default: return initialization_result::failed();
-        }
+    auto on_initialization(i32 stage = 0)
+        -> system_initialization_result override {
+        log()->trace(
+            "renderer", "renderer_system::on_initialization(stage={})", stage);
+        if (stage == 0)
+            return initialize();
+        return system_initialization_result::failed();
     }
 
     auto on_shutdown() -> void override { shutdown(); }
@@ -56,13 +59,24 @@ public:
         return deps;
     }
 
+    // --- ic_renderer implementation ---
+    // —————————————————————————————————————————————————————————————————————————
+
+    auto set_frames_in_flight(ic_window* window, u32 frames) -> void override;
+    auto begin_frame(ic_window* window) -> bool override;
+    auto end_frame(ic_window* window) -> void override;
+
 private:
     // --- targets ---
     // —————————————————————————————————————————————————————————————————————————
 
-    i_render_backend* _backend = nullptr;  ///< backend from system_registry.
-    i_window*         _window  = nullptr;  ///< target window for rendering.
-    i_device*         _device  = nullptr;  ///< gpu device.
+    i_render_backend* _backend = nullptr;    ///< backend from system_registry.
+    std::vector<ic_window*> _windows;        ///< target windows for rendering.
+    std::mutex              _windows_mutex;  ///< protects window collection.
+    subscription_id         _window_sub {};  ///< window.created subscription.
+    subscription_id         _window_destroyed_sub {};  ///< window.destroyed
+                                                       ///< subscription.
+    i_device* _device = nullptr;                       ///< gpu device.
 
 
 private:
@@ -70,11 +84,10 @@ private:
     // —————————————————————————————————————————————————————————————————————————
 
     // --- initialization stages ---
-    
-    /// @brief initialization stage 0: create render backend.
-    /// @return on success: await_event("vent.window.created").
-    auto initialize_s0()
-        -> initialization_result;  ///< stage 0: create render backend.
+
+    /// @brief initialize the renderer.
+    [[nodiscard]]
+    auto initialize() -> system_initialization_result;
 
     /// @brief shutdown renderer system.
     auto shutdown() -> void;

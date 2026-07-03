@@ -63,6 +63,10 @@ VENT_API auto platform() -> ic_platform* {
     return g_system_registry->get<ic_platform>();
 }
 
+VENT_API auto renderer() -> ic_renderer* {
+    return g_system_registry->get<ic_renderer>();
+}
+
 // --- return if ready accessors ---
 // —————————————————————————————————————————————————————————————————————————————
 

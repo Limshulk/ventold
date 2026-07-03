@@ -79,9 +79,9 @@
     class_name& operator=(const class_name&) = delete;
 
 // --- non-moveable class ---
-#define VENT_NO_MOVE(class_name)                        \
-    class_name(const class_name&&)            = delete; \
-    class_name& operator=(const class_name&&) = delete;
+#define VENT_NO_MOVE(class_name)                  \
+    class_name(class_name&&)            = delete; \
+    class_name& operator=(class_name&&) = delete;
 
 // --- non-copy & non-move ---
 #define VENT_NO_COPY_MOVE(class_name) \
@@ -89,23 +89,28 @@
     VENT_NO_MOVE(class_name)
 
 // --- generic & simple profiling macro ---
-#include <chrono>
-#include <print>
 
-#define TIC auto __vent_tic = std::chrono::high_resolution_clock::now();
+#if defined(VENT_DEBUG) || defined(VENT_RELEASE)
 
-#define TOC                                                              \
-    do {                                                                 \
-        using namespace std::chrono;                                     \
-        auto __vent_toc = high_resolution_clock::now();                  \
-        auto __vent_ns =                                                 \
-            duration_cast<nanoseconds>(__vent_toc - __vent_tic).count(); \
-        if (__vent_ns < 1'000) {                                         \
-            std::print("PROFILE: {} ns\n", __vent_ns);                   \
-        } else {                                                         \
-            std::print("PROFILE: {:.3f} µs\n", __vent_ns / 1'000.0);     \
-        }                                                                \
-    } while (0);
+    #include <chrono>
+    #include <print>
+
+    #define TIC auto ___vent_tic = std::chrono::high_resolution_clock::now();
+
+    #define TOC                                                                \
+        do {                                                                   \
+            using namespace std::chrono;                                       \
+            auto ___vent_toc = high_resolution_clock::now();                   \
+            auto ___vent_ns =                                                  \
+                duration_cast<nanoseconds>(___vent_toc - ___vent_tic).count(); \
+            if (___vent_ns < 1'000) {                                          \
+                std::print("PROFILE: {} ns\n", ___vent_ns);                    \
+            } else {                                                           \
+                std::print("PROFILE: {:.3f} µs\n", ___vent_ns / 1'000.0);      \
+            }                                                                  \
+        } while (0);
+
+#endif
 
 // --- base types ---
 // —————————————————————————————————————————————————————————————————————————————

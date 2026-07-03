@@ -11,4 +11,5 @@ vent_create_module(
         src/renderer.cpp
     INTERNAL_DEPS
         core
+        platform
 )

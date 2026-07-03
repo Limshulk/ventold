@@ -36,6 +36,7 @@ auto event_bus::initialize() -> bool {
 }
 
 auto event_bus::shutdown() -> void {
+    log()->trace("event_bus", "event_bus::shutdown() called");
     std::unique_lock lock(_mutex);
 
     _subscriptions.clear();
@@ -43,8 +44,8 @@ auto event_bus::shutdown() -> void {
     _initialized = false;
 }
 
-auto event_bus::subscribe(std::string_view event,
-                          event_callback   callback) -> subscription_id {
+auto event_bus::subscribe(std::string_view event, event_callback callback)
+    -> subscription_id {
     if (!_initialized)
         return INVALID_SUBSCRIPTION;
 
@@ -112,7 +113,7 @@ auto event_bus::dispatch(std::string_view      event,
 
         auto it = _subscriptions.find(event_str);
         if (it == _subscriptions.end()) {
-            // todo: log trace: no subscribers for event.
+            log()->trace("event_bus", "no subscribers for event {}", event_str);
             return;
         }
 
@@ -154,7 +155,7 @@ auto event_bus::dispatch_wait(std::string_view event, void* data) -> void {
 
         auto it = _subscriptions.find(event_str);
         if (it == _subscriptions.end()) {
-            // todo: log trace: no subscribers for event.
+            log()->trace("event_bus", "no subscribers for event {}", event_str);
             return;
         }
 

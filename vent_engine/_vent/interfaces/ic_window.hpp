@@ -52,12 +52,11 @@ constexpr auto has_style(window_style styles, window_style flag) -> bool {
 // --- renderer_api ---
 // —————————————————————————————————————————————————————————————————————————————
 
-/// @brief identifies which rendering api a window is configured for. affects
-/// how the window is created (opengl needs context, vulkan doesn't).
+/// @brief identifies which rendering api a window is configured for.
 enum class renderer_api : u8 {
     none   = 0,  ///< no renderer (utility window).
-    vulkan = 1,  ///< vulkan 1.3.
-    opengl = 2,  ///< opengl 4.6.
+    vulkan = 1,  ///< vulkan.
+    opengl = 2,  ///< opengl.
     dx12   = 3,  ///< directx 12 (windows only).
 };
 

@@ -92,6 +92,8 @@ VENT_EXTERN_C VENT_API auto vent_engine_entry(const engine_config& config)
     // clear the global registry pointer.
     set_system_registry(nullptr);
 
+    log()->info("core", "goodbye from '{}'...", config.app_id);
+
     thread_registry::unregister_thread();
 
     return exit_code;

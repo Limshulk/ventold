@@ -16,6 +16,7 @@
 #include <GLFW/glfw3.h>
 
 #include <cstring>
+#include <future>
 
 #ifdef __linux__
     #include <pthread.h>
@@ -42,16 +43,18 @@ auto platform_system::initialize() -> bool {
     log()->trace("platform", "initializing platform system...");
     log()->trace("platform", "spawning dedicated platform thread...");
 
-    std::promise<bool> ready;
-    auto               future = ready.get_future();
+    _running = true;
 
-    _running.store(true, std::memory_order_release);
+    // spawn the platform thread using the thread registry.
+    std::promise<bool> init_promise;
+    auto               init_future = init_promise.get_future();
 
-    _platform_thread = std::thread([this, ready = std::move(ready)]() mutable {
-        platform_thread_main(std::move(ready));
-    });
+    _platform_thread = thread_registry::spawn_thread(
+        "PLAT", [this, p = std::move(init_promise)]() mutable {
+            platform_thread_main(std::move(p));
+        });
 
-    if (!future.get()) {
+    if (!init_future.get()) {
         _running.store(false, std::memory_order_release);
         if (_platform_thread.joinable()) {
             _platform_thread.join();
@@ -68,13 +71,10 @@ auto platform_system::shutdown() -> void {
     _running.store(false, std::memory_order_release);
     glfwPostEmptyEvent();
 
+    // join the thread cleanly.
     if (_platform_thread.joinable() &&
         _platform_thread.get_id() != std::this_thread::get_id()) {
         _platform_thread.join();
-    }
-
-    if (_platform_thread.joinable()) {
-        _platform_thread.detach();
     }
 
     log()->trace("platform", "platform shutdown complete");
@@ -178,8 +178,6 @@ auto platform_system::process_close_requests() -> void {
 }
 
 auto platform_system::platform_thread_main(std::promise<bool> ready) -> void {
-    // register the platform thread so logs and diagnostics can identify it.
-    thread_registry::register_thread("P:UI");
 
     _platform_thread_id = std::this_thread::get_id();
 
@@ -254,7 +252,6 @@ auto platform_system::platform_thread_main(std::promise<bool> ready) -> void {
     }
 
     log()->trace("platform", "platform thread stopped.");
-    thread_registry::unregister_thread();
 }
 
 auto platform_system::get_platform_type() const -> platform_type {
@@ -268,6 +265,19 @@ auto platform_system::get_platform_type() const -> platform_type {
         case GLFW_PLATFORM_COCOA: return platform_type::cocoa;
         default: return platform_type::unknown;
     }
+}
+
+auto platform_system::get_window_system_extensions(renderer_api api) const
+    -> std::vector<const char*> {
+    if (api == renderer_api::vulkan) {
+        u32  count           = 0;
+        auto glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+        if (glfw_extensions) {
+            return std::vector<const char*>(glfw_extensions,
+                                            glfw_extensions + count);
+        }
+    }
+    return {};
 }
 
 auto platform_system::create_window(const window_desc& desc) -> ic_window* {
@@ -299,10 +309,11 @@ auto platform_system::create_window(const window_desc& desc) -> ic_window* {
         ic_window* handle = win.get();
         _windows.push_back(std::move(win));
 
-        // todo: publish window.created event for listeners (e.g., renderer
-        // todo: staged init).
-        // window_created_event event_data{.window = handle};
-        // events()->publish("window.created", &event_data);
+        // publish window.created event for listeners (e.g., renderer
+        // staged init).
+        if (auto* bus = event_if_ready()) {
+            bus->publish("window.created", static_cast<void*>(handle));
+        }
 
         log()->trace("platform", "window created: '{}'.", desc.title);
         return handle;
@@ -359,9 +370,13 @@ auto platform_system::destroy_window(ic_window* handle) -> void {
                          promoted_main->get_title());
         }
 
-        destroyed_window.reset();
-
         log()->trace("platform", "window destroyed: '{}'.", title);
+
+        if (auto* bus = event_if_ready()) {
+            bus->publish_wait("window.destroyed", static_cast<void*>(handle));
+        }
+
+        destroyed_window.reset();
     });
 }
 
@@ -373,6 +388,16 @@ auto platform_system::get_main_window() const -> ic_window* {
 auto platform_system::get_window_count() const -> u32 {
     std::lock_guard lock(_state_mutex);
     return static_cast<u32>(_windows.size());
+}
+
+auto platform_system::get_windows() const -> std::vector<ic_window*> {
+    std::lock_guard         lock(_state_mutex);
+    std::vector<ic_window*> active;
+    active.reserve(_windows.size());
+    for (const auto& w : _windows) {
+        active.push_back(w.get());
+    }
+    return active;
 }
 
 auto platform_system::set_close_policy(window_close_policy policy) -> void {

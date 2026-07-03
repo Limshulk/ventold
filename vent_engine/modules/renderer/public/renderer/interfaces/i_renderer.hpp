@@ -6,8 +6,10 @@
 //
 // extends ic_renderer.
 
+#include <_vent/interfaces/ic_renderer.hpp>
+
 namespace vent {
 
-class i_renderer {};
+class i_renderer : public ic_renderer {};
 
 }  // namespace vent

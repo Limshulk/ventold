@@ -71,7 +71,7 @@ public:
     ~log_system() override;
 
     VENT_NO_COPY_MOVE(log_system);
-    
+
 public:
     // --- system interface implementation ---
     // —————————————————————————————————————————————————————————————————————————
@@ -83,9 +83,10 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0) -> initialization_result override {
-        return initialize() ? initialization_result::complete()
-                            : initialization_result::failed();
+    auto on_initialization(i32 stage = 0)
+        -> system_initialization_result override {
+        return initialize() ? system_initialization_result::complete()
+                            : system_initialization_result::failed();
     }
 
     auto on_shutdown() -> void override { shutdown(); }
@@ -148,9 +149,8 @@ private:
     // --- ic_log ---
     // —————————————————————————————————————————————————————————————————————————
 
-    auto message(log_level   lvl,
-                 const char* module,
-                 const char* message) -> void override;
+    auto message(log_level lvl, const char* module, const char* message)
+        -> void override;
 
     auto message_full(log_level   lvl,
                       const char* module,
@@ -184,7 +184,7 @@ private:
 
     /// @brief get friendly name for current thread.
     /// @return current thread name from thread_registry.
-    auto get_current_thread_name() -> const char*;
+    auto get_current_thread_name() -> std::string;
 
     /// @brief get current date as string (YYYY-MM-DD).
     /// @return date string in YYYY-MM-DD format.
@@ -210,8 +210,8 @@ private:
     /// @param date date string (YYYY_MM_DD).
     /// @param index log file index (0 = first file).
     /// @return constructed log file path.
-    auto build_log_file_path(const std::string& date,
-                             int                index) const -> std::string;
+    auto build_log_file_path(const std::string& date, int index) const
+        -> std::string;
 
     /// @brief open log file for writing. creates directories as needed. finds
     /// any available files and appends to existing file if under size limit.

@@ -9,7 +9,7 @@
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/interfaces/ic_window.hpp>
-#include <_vent/interfaces/ir_client.hpp> // TODO: needed for window_close_policy. check if we can move the definition somewhere else.
+#include <_vent/interfaces/ir_client.hpp>  // TODO: needed for window_close_policy. check if we can move the definition somewhere else.
 
 namespace vent {
 
@@ -20,7 +20,7 @@ enum class platform_type {
     x11     = 1,  ///< good linux.
     wayland = 2,  ///< broken linux.
     win32   = 3,  ///< ai slop.
-    cocoa   = 4,  ///< heiße schokolade (macos).
+    cocoa   = 4,  ///< heiße schokolade.
 };
 
 class ic_platform {
@@ -32,6 +32,14 @@ public:
 
     [[nodiscard]]
     virtual auto get_platform_type() const -> platform_type = 0;
+
+    /// @brief get the window system extensions required for a specific graphics
+    /// api. may be unused or return a null vector if not supported by the api.
+    /// @param api the graphics api to query extensions for.
+    /// @return list of required extension names.
+    [[nodiscard]]
+    virtual auto get_window_system_extensions(renderer_api api) const
+        -> std::vector<const char*> = 0;
 
     // --- window management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -57,6 +65,10 @@ public:
     /// @brief get the number of active windows.
     [[nodiscard]]
     virtual auto get_window_count() const -> u32 = 0;
+
+    /// @brief get all active windows.
+    [[nodiscard]]
+    virtual auto get_windows() const -> std::vector<ic_window*> = 0;
 
     /// @brief set the policy used when the main window receives a close
     /// request.

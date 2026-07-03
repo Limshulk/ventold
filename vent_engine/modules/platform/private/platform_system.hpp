@@ -46,9 +46,10 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0) -> initialization_result override {
-        return initialize() ? initialization_result::complete()
-                            : initialization_result::failed();
+    auto on_initialization(i32 stage = 0)
+        -> system_initialization_result override {
+        return initialize() ? system_initialization_result::complete()
+                            : system_initialization_result::failed();
     }
 
     auto on_shutdown() -> void override { shutdown(); }
@@ -78,12 +79,18 @@ public:
     auto get_platform_type() const -> platform_type override;
 
     [[nodiscard]]
+    auto get_window_system_extensions(renderer_api api) const
+        -> std::vector<const char*> override;
+
+    [[nodiscard]]
     auto create_window(const window_desc& desc) -> ic_window* override;
     auto destroy_window(ic_window* window) -> void override;
     [[nodiscard]]
     auto get_main_window() const -> ic_window* override;
     [[nodiscard]]
     auto get_window_count() const -> u32 override;
+    [[nodiscard]]
+    auto get_windows() const -> std::vector<ic_window*> override;
     auto set_close_policy(window_close_policy policy) -> void override;
     auto poll_events() -> void override;
 

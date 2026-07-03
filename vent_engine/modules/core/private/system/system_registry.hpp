@@ -41,6 +41,7 @@ private:
     bool _initialized = false;
 
     /// @brief map of all systems. name -> system_entry.
+    // todo: does this ened a mutex?
     std::unordered_map<std::string, system_entry> _systems;
 
     /// @brief map: type_index -> (void* interface_ptr, system_name).

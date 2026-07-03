@@ -27,10 +27,12 @@ vent_create_plugin(
     NAME vulkan_backend
     SOURCES
         src/vulkan_backend.cpp
+        src/vulkan_swapchain.cpp
 
     INTERNAL_DEPS
         core
         renderer
+        platform
         
     EXTERNAL_LIBS
         Vulkan::Vulkan
@@ -51,4 +53,14 @@ target_compile_definitions(vent_vulkan_backend PRIVATE
     # instead of:
     #   vk::InstanceCreateInfo(flags, &appInfo, ...)
     VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
+
+    # enable validation layers in debug builds.
+    $<$<CONFIG:Debug>:VENT_DEBUG>
+
+    # platform-specific vulkan surface support.
+    # must be defined before vulkan headers are included.
+    $<$<PLATFORM_ID:Windows>:VK_USE_PLATFORM_WIN32_KHR>
+    $<$<PLATFORM_ID:Linux>:VK_USE_PLATFORM_XLIB_KHR>
+    $<$<PLATFORM_ID:Linux>:VK_USE_PLATFORM_WAYLAND_KHR>
+    $<$<PLATFORM_ID:Darwin>:VK_USE_PLATFORM_METAL_EXT>
 )

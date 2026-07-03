@@ -45,14 +45,12 @@ public:
 
     [[nodiscard]]
     auto on_initialization(i32 stage = 0)
-        -> initialization_result override {
-        return initialize() ? initialization_result::complete()
-                            : initialization_result::failed();
+        -> system_initialization_result override {
+        return initialize() ? system_initialization_result::complete()
+                            : system_initialization_result::failed();
     }
 
-    auto on_shutdown() -> void override {
-        shutdown();
-    }
+    auto on_shutdown() -> void override { shutdown(); }
 
 private:
     // --- internal types ---
@@ -203,15 +201,15 @@ public:
     // --- ic_job ---
     // —————————————————————————————————————————————————————————————————————————
 
-    auto fire(job_fn       job_func,
-              job_priority priority = job_priority::normal) -> void override;
+    auto fire(job_fn job_func, job_priority priority = job_priority::normal)
+        -> void override;
     auto fire_batch(const job_fn* job_funcs,
                     u64           count,
                     job_priority  priority = job_priority::normal)
         -> void override;
 
-    auto submit_with_state(task_state* state,
-                           job_fn      job_func,
+    auto submit_with_state(task_state*  state,
+                           job_fn       job_func,
                            job_priority priority) -> void override;
 
     auto drain() -> void override;
@@ -219,10 +217,8 @@ public:
     auto wait_for_state(task_state* state) -> void override;
     auto release_state(task_state* state) -> void override;
 
-    auto parallel_for(u64         begin,
-                      u64         end,
-                      parallel_fn func,
-                      u64         chunk_size = 0) -> void override;
+    auto parallel_for(u64 begin, u64 end, parallel_fn func, u64 chunk_size = 0)
+        -> void override;
 
     [[nodiscard]]
     auto is_fallback() const -> bool override {
@@ -233,7 +229,7 @@ protected:
     auto submit_internal(std::function<void(void*)> wrapper,
                          usize                      result_size,
                          void (*result_deleter)(void*),
-                         job_priority               priority) -> task override;
+                         job_priority priority) -> task override;
 
 private:
     // --- lifecycle ---

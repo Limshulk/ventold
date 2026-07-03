@@ -42,14 +42,12 @@ public:
 
     [[nodiscard]]
     auto on_initialization(i32 stage = 0)
-        -> initialization_result override {
-        return initialize() ? initialization_result::complete()
-                            : initialization_result::failed();
+        -> system_initialization_result override {
+        return initialize() ? system_initialization_result::complete()
+                            : system_initialization_result::failed();
     }
 
-    auto on_shutdown() -> void override {
-        shutdown();
-    }
+    auto on_shutdown() -> void override { shutdown(); }
 
 private:
     // --- internal types ---
@@ -108,15 +106,15 @@ public:
     // —————————————————————————————————————————————————————————————————————————
 
     [[nodiscard]]
-    auto subscribe(std::string_view event,
-                   event_callback   callback) -> subscription_id override;
+    auto subscribe(std::string_view event, event_callback callback)
+        -> subscription_id override;
 
     auto unsubscribe(subscription_id id) -> void override;
 
     auto publish(std::string_view event, void* data = nullptr) -> void override;
 
-    auto publish_wait(std::string_view event,
-                      void*            data = nullptr) -> void override;
+    auto publish_wait(std::string_view event, void* data = nullptr)
+        -> void override;
 
 private:
     // --- ic_event_bus ---

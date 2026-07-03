@@ -17,7 +17,7 @@
 //     each system. can take arbitrary time depending on what the system does.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/system/initialization_result.hpp>
+#include <_vent/system/system_initialization_result.hpp>
 #include <_vent/interfaces/ic_job.hpp>
 #include <_vent/interfaces/ic_event_bus.hpp>
 
@@ -69,9 +69,11 @@ struct batch_init_result {
 /// and job_system don't exist yet (they ARE bootstrap systems). after bootstrap
 /// completes, both must be set for regular initialization.
 struct init_context {
-    system_registry& registry;       ///< system storage.
-    ic_event_bus*    events = nullptr;  ///< for dependency/init events (null during bootstrap).
-    ic_job*          jobs   = nullptr;  ///< for parallel initialization (null during bootstrap).
+    system_registry& registry;  ///< system storage.
+    ic_event_bus*    events =
+        nullptr;  ///< for dependency/init events (null during bootstrap).
+    ic_job* jobs =
+        nullptr;  ///< for parallel initialization (null during bootstrap).
 
     /// @brief callback when a system becomes ready.
     std::function<void(const std::string&)> on_ready;
@@ -140,7 +142,8 @@ public:
     /// @brief register a client factory.
     /// called by VENT_CLIENT macro during static initialization.
     /// @param factory function that creates the client instance.
-    auto register_client(client_factory_fn factory, std::string source_plugin) -> void;
+    auto register_client(client_factory_fn factory, std::string source_plugin)
+        -> void;
 
     // --- system creation ---
     // —————————————————————————————————————————————————————————————————————————
@@ -214,7 +217,7 @@ public:
     /// @param name system name to initialize.
     /// @return action indicating outcome (complete, await_event, failed).
     auto initialize_one(system_registry& registry, const std::string& name)
-        -> initialization_result::action;
+        -> system_initialization_result::action;
 
     // --- dependency event management ---
     // —————————————————————————————————————————————————————————————————————————

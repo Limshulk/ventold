@@ -16,7 +16,7 @@
 // - ir_runnable: system has on_update() for main loop.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/system/initialization_result.hpp>
+#include <_vent/system/system_initialization_result.hpp>
 
 #include <string_view>
 
@@ -39,7 +39,7 @@ public:
     /// @return initialization result indicating next action.
     [[nodiscard]]
     virtual auto on_initialization(i32 stage = 0)
-        -> initialization_result = 0;
+        -> system_initialization_result = 0;
 
     /// @brief shutdown call. clean up resources.
     virtual auto on_shutdown() -> void = 0;

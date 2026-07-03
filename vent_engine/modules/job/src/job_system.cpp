@@ -11,6 +11,8 @@
 #include <core/thread_registry.hpp>
 #include <core/system/registration.hpp>
 
+#include <_vent/accessors.hpp>
+
 #include <algorithm>
 #include <cstdlib>
 #include <random>
@@ -51,12 +53,8 @@ auto job_system::initialize() -> bool {
     }
     u64 worker_count = static_cast<u64>(required_worker_count);
 
-    /*
-    log()->trace("jobs",
-                 "initializing job system with {} workers (reserved cores: {})",
-                 worker_count,
-                 abs(_config.worker_count));
-                 */
+    log()->trace(
+        "job_system", "initializing job system with {} workers.", worker_count);
 
     _shutdown_requested = false;
     _pending_count      = 0;
@@ -69,7 +67,10 @@ auto job_system::initialize() -> bool {
     }
 
     for (u64 i = 0; i < worker_count; ++i) {
-        _workers[i]->_thread = std::thread(&job_system::worker_main, this, i);
+        std::string name     = std::format("W:{:02}", i);
+        _workers[i]->_thread = thread_registry::spawn_thread(name, [this, i]() {
+            worker_main(i);
+        });
     }
 
     _initialized = true;
@@ -78,6 +79,7 @@ auto job_system::initialize() -> bool {
 }
 
 auto job_system::shutdown() -> void {
+    log()->trace("job_system", "job_system::shutdown() called.");
     if (!_initialized) {
         return;
     }
@@ -91,12 +93,14 @@ auto job_system::shutdown() -> void {
     _shutdown_requested = true;
     wake_workers();
 
+    // join worker threads.
     for (auto* ctx : _workers) {
         if (ctx->_thread.joinable()) {
             ctx->_thread.join();
         }
     }
 
+    // clear all remaining queues. these jobs will never be executed.
     while (auto j = _global_high_queue.try_pop()) {
         free_job(*j);
     }
@@ -120,7 +124,7 @@ auto job_system::shutdown() -> void {
     }
     _workers.clear();
 
-    // todo: log job system shutdown complete.
+    log()->trace("job_system", "job_system::shutdown() complete");
 }
 
 auto job_system::fire(job_fn job_func, job_priority priority) -> void {
@@ -154,8 +158,8 @@ auto job_system::fire_batch(const job_fn* jobs,
     }
 }
 
-auto job_system::submit_with_state(task_state* state,
-                                   job_fn      job_func,
+auto job_system::submit_with_state(task_state*  state,
+                                   job_fn       job_func,
                                    job_priority priority) -> void {
     if (!_initialized || !state || !job_func) {
         return;
@@ -182,7 +186,7 @@ auto job_system::submit_with_state(task_state* state,
 auto job_system::submit_internal(std::function<void(void*)> wrapper,
                                  usize                      result_size,
                                  void (*result_deleter)(void*),
-                                 job_priority               priority) -> task {
+                                 job_priority priority) -> task {
     // allocate task state (shared between job and task handle).
     auto* state = new task_state();
 
@@ -273,7 +277,7 @@ auto job_system::parallel_for(u64         begin,
     // aim for roughly one chunk per worker thread.
     if (chunk_size == 0) {
         u64 num_workers = std::max<u64>(1, _workers.size());
-        chunk_size      = std::max<u64>(1, (count + num_workers - 1) / num_workers);
+        chunk_size = std::max<u64>(1, (count + num_workers - 1) / num_workers);
     }
 
     u64 num_chunks = (count + chunk_size - 1) / chunk_size;
@@ -344,8 +348,8 @@ auto job_system::submit_job(job_t* j) -> void {
     if (pushed) {
         wake_workers();
     } else {
-        //log()->warn(
-        //    "jobs", "global queue full, executing job inline (id={}).", j->id);
+        // log()->warn(
+        //     "jobs", "global queue full, executing job inline (id={}).", j->id);
         execute_job(j, SIZE_MAX);
     }
 }
@@ -389,8 +393,8 @@ auto job_system::handle_batch_completion(job_t* j) -> void {
     std::lock_guard lock(_completion_mutex);
     auto            it = _batch_counters.find(j->batch_id);
     if (it == _batch_counters.end()) {
-        //log()->error(
-        //    "jobs", "batch counter not found for batch_id={}.", j->batch_id);
+        // log()->error(
+        //     "jobs", "batch counter not found for batch_id={}.", j->batch_id);
         return;
     }
     if (it->second->fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -409,24 +413,12 @@ auto job_system::worker_main(u64 worker_index) -> void {
     _tls_worker_index = worker_index;
     _tls_is_worker    = true;
 
-    // register thread with 4-char name: W:XX.
-    char short_name[5];
-    std::snprintf(short_name, sizeof(short_name), "W:%02lu", worker_index);
-    thread_registry::register_thread(short_name);
-
-#ifdef __linux__
-    char thread_name[/*limit::platform::max_thread_name*/ 16];
-    std::snprintf(
-        thread_name, sizeof(thread_name), "vent:worker%02lu", worker_index);
-    pthread_setname_np(pthread_self(), thread_name);
-#endif
-
 #ifdef VENT_DEBUG
     _workers[worker_index]->_local_queue.set_owner_thread_id(
         std::this_thread::get_id());
 #endif
 
-    // log()->trace("jobs", "worker {} started.", worker_index);
+    log()->trace("job_system", "worker {} started.", worker_index);
 
     while (!_shutdown_requested.load(std::memory_order_relaxed)) {
         job_t* j = get_job(worker_index);
@@ -438,18 +430,15 @@ auto job_system::worker_main(u64 worker_index) -> void {
             _sleeping_workers.fetch_add(1, std::memory_order_relaxed);
 
             if (!_shutdown_requested.load(std::memory_order_relaxed))
-                _sleep_cv.wait_for(
-                    lock,
-                    std::chrono::milliseconds(/*worker_config::idle_sleep_ms*/ 1));
+                _sleep_cv.wait_for(lock,
+                                   std::chrono::milliseconds(
+                                       /*worker_config::idle_sleep_ms*/ 1));
 
             _sleeping_workers.fetch_sub(1, std::memory_order_relaxed);
         }
     }
 
-    //log()->trace("jobs", "worker {} stopped.", worker_index);
-
-    // unregister thread from registry.
-    thread_registry::unregister_thread();
+    log()->trace("job_system", "worker {} stopped.", worker_index);
 }
 
 auto job_system::get_job(u64 worker_index) -> job_t* {

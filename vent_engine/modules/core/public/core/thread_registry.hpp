@@ -4,16 +4,28 @@
 // thread registry.
 // ——————————————————————
 //
-// header-only registry that maps kernel-hashed (random) thread id's to friendly
-// 4-char names.
-// used for debugging purposes and by the log system to display the current
-// thread in a readable manner.
+// header-only registry that is responsible for easy thread creation. it cares
+// about thread lifecycles and os-dependent safe-exits.
+// also maps kernel-hashed (random) thread id's to friendly 4-char names. used
+// for debugging purposes and by the log system to display the current thread in
+// a readable manner.
 //
 // usage:
-//   thread_registry::register_thread("<name>"); // call after thread creation.
-//   thread_registry::unregister_thread();       // unregister current thread.
+//   thread_registry::spawn_thread("<name>", [*](*) {<thread_function()>});
+//      spawns a new thread executing thread_function(). handles creation and
+//      cleanup, so nothing else is required to do.
+//
+//   thread_registry::register_thread("<name>"); // call after manual thread
+//      creation to assign a name (generally not needed to call).
+//
+//   thread_registry::unregister_thread();       // unregister current thread
+//      before it exits (generally not needed to call).
+//
 //   auto name = thread_registry::get_thread();  // returns current thread's
-//   name.
+//      name.
+//
+//   auto name = thread_registry::get_thread(id);  // returns thread's
+//      name from id.
 
 #include <_vent/vent_sdk.hpp>
 
@@ -66,6 +78,17 @@ private:
         return name;
     }
 
+    /// @brief cleanly exit the current thread. called from inside the thread.
+    static void exit_thread() {
+#ifdef VENT_WINDOWS
+        ExitThread(0);
+#elif defined(VENT_LINUX)
+        pthread_exit(nullptr);
+#else
+        std::exit(0);
+#endif
+    }
+
 public:
     /// @brief maximal name length. 4 characters + null terminator.
     static constexpr usize MAX_LEN = 4;
@@ -110,6 +133,32 @@ public:
 
         // fallback: just use the thread id formatted as a 4-digit number.
         return std::format("{:04}", id % 10000);
+    }
+
+    /// @brief spawn a new std::thread, automatically registering it and
+    ///   handling cleanup.
+    /// @tparam F the function type to execute.
+    /// @param name the name of the thread, must be MAX_LEN characters.
+    /// @param f the function to execute on the new thread.
+    /// @return the spawned std::thread.
+    template <typename F>
+    static auto spawn_thread(std::string name, F&& f) -> std::thread {
+        return std::thread(
+            [name = std::move(name), func = std::forward<F>(f)]() mutable {
+                register_thread(name);
+
+#if defined(VENT_LINUX)
+                std::string os_name = std::format("vent:{}", name);
+                pthread_setname_np(pthread_self(), os_name.c_str());
+#endif
+
+                // run the user's thread function.
+                func();
+
+                // automatically unregister and cleanly terminate the thread.
+                unregister_thread();
+                exit_thread();
+            });
     }
 
     /// @brief get the os-dependent thread id.

@@ -19,6 +19,7 @@
 #include <_vent/interfaces/ic_log.hpp>
 #include <_vent/interfaces/ic_event_bus.hpp>
 #include <_vent/interfaces/ic_platform.hpp>
+#include <_vent/interfaces/ic_renderer.hpp>
 
 namespace vent {
 
@@ -47,6 +48,10 @@ VENT_API auto event() -> ic_event_bus*;
 /// @brief get the platform system.
 /// @return pointer to the platform system, or nullptr if not available.
 VENT_API auto platform() -> ic_platform*;
+
+/// @brief get the renderer system.
+/// @return pointer to the renderer system, or nullptr if not available.
+VENT_API auto renderer() -> ic_renderer*;
 
 // --- safe accessors (for initialization) ---
 // —————————————————————————————————————————————————————————————————————————————

@@ -8,6 +8,9 @@
 // different implementations might come with different functionality. this
 // interfaces lays a general ground for logging.
 
+// todo: this code is aweful and should be rewritten at some point. also think
+// todo: about the 4096 buffer at the stack!
+
 #include <_vent/vent_sdk.hpp>
 
 #include <algorithm>
@@ -74,9 +77,8 @@ private:
     /// @param lvl severity level.
     /// @param module module name (e.g., "renderer", "physics").
     /// @param message the message text.
-    virtual auto message(log_level   lvl,
-                         const char* module,
-                         const char* message) -> void = 0;
+    virtual auto message(log_level lvl, const char* module, const char* message)
+        -> void = 0;
 
     /// @brief log a message with full source location info (3-line format).
     /// @param lvl severity level.
@@ -105,9 +107,9 @@ public:
     auto trace(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        //if (log_level::trace < min_level())
-        //    return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        // if (log_level::trace < min_level())
+        //     return;
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -119,9 +121,9 @@ public:
     auto debug(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        //if (log_level::debug < min_level())
-        //    return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        // if (log_level::debug < min_level())
+        //     return;
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -135,7 +137,7 @@ public:
               args_t&&... args) -> void {
         // if (log_level::info < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -149,7 +151,7 @@ public:
               args_t&&... args) -> void {
         // if (log_level::warning < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -163,7 +165,7 @@ public:
                args_t&&... args) -> void {
         // if (log_level::error < min_level())
         //     return;  // that is kinda weird but nvm.
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -197,7 +199,7 @@ public:
         args_t&&... args) -> void {
         // if (log_level::trace < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -217,7 +219,7 @@ public:
         args_t&&... args) -> void {
         // if (log_level::debug < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -237,7 +239,7 @@ public:
         args_t&&... args) -> void {
         // if (log_level::info < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -257,7 +259,7 @@ public:
         args_t&&... args) -> void {
         // if (log_level::warning < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -277,7 +279,7 @@ public:
         args_t&&... args) -> void {
         // if (log_level::error < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =
@@ -297,7 +299,7 @@ public:
         args_t&&... args) -> void {
         // if (log_level::critical < min_level())
         //     return;
-        char buffer[4096]; // todo: limit::log::message_size configurable!
+        char buffer[4096];  // todo: limit::log::message_size configurable!
         auto result = std::format_to_n(
             buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
         buffer[std::min(static_cast<size_t>(result.size), sizeof(buffer) - 1)] =

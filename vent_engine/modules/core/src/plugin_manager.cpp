@@ -8,14 +8,16 @@
 
 #include <_vent/accessors.hpp>
 
+#include <thread>
+
 namespace vent {
 
 plugin_manager::~plugin_manager() {
     unload_all();
 }
 
-auto plugin_manager::load(std::string_view name, 
-                          std::string_view path_prefix) -> bool {
+auto plugin_manager::load(std::string_view name, std::string_view path_prefix)
+    -> bool {
     std::lock_guard lock(_mutex);
 
     // check if already loaded.
@@ -34,7 +36,7 @@ auto plugin_manager::load(std::string_view name,
     auto handle = lib::load_library(library_path.c_str());
     if (handle == lib::INVALID_LIBRARY_HANDLE) {
         log()->error("plugin_manager",
-                     "failed to load plugin '{}': {}",
+                     "failed to load plugin '{}': {}.",
                      name,
                      lib::get_last_error());
         return false;
@@ -79,7 +81,8 @@ auto plugin_manager::is_loaded(std::string_view name) const -> bool {
     return _plugins.contains(std::string(name));
 }
 
-auto plugin_manager::get_handle(std::string_view name) const -> lib::library_handle {
+auto plugin_manager::get_handle(std::string_view name) const
+    -> lib::library_handle {
     std::lock_guard lock(_mutex);
 
     auto it = _plugins.find(std::string(name));

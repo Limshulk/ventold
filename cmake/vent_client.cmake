@@ -341,14 +341,16 @@ function(vent_create_client)
                 message(FATAL_ERROR "vent_create_client: plugin '${PLG}' not found")
             endif()
 
-            add_custom_command(TARGET ${LAUNCHER_TARGET} POST_BUILD
+            set(COPY_TARGET "${APP_NAME}_copy_${PLG}")
+            add_custom_target(${COPY_TARGET} ALL
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     $<TARGET_FILE:${PLG_TARGET}>
                     "${APP_OUTPUT_DIR}/"
-                COMMENT "copying plugin ${PLG}"
+                DEPENDS ${PLG_TARGET}
+                COMMENT "copying plugin ${PLG} to ${APP_NAME} output directory"
             )
 
-            add_dependencies(${LAUNCHER_TARGET} ${PLG_TARGET})
+            add_dependencies(${LAUNCHER_TARGET} ${COPY_TARGET})
         endforeach()
     endif()
 
