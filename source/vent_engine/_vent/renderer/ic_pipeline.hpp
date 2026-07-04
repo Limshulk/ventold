@@ -1,10 +1,10 @@
 #pragma once
 //
 // vent public sdk.
-// pipeline description.
+// pipeline interface.
 // ——————————————————————
 //
-// describes a graphics pipeline to be created by the renderer backend.
+// abstract interface for a graphics pipeline.
 
 #include <string>
 
@@ -16,6 +16,11 @@ struct pipeline_desc {
     shader_asset* shader = nullptr;
     std::string   vertex_entry = "vertMain";
     std::string   fragment_entry = "fragMain";
+};
+
+class ic_pipeline {
+public:
+    virtual ~ic_pipeline() = default;
 };
 
 } // namespace vent

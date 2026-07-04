@@ -8,7 +8,7 @@
 // and resolving virtual paths to physical directories.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/shader_asset.hpp>
+#include <_vent/asset/shader.hpp>
 
 #include <string>
 #include <string_view>

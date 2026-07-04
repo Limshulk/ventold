@@ -8,8 +8,10 @@
 // polling events. the platform system abstracts os-specific functionality.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/interfaces/ic_window.hpp>
-#include <_vent/interfaces/ir_client.hpp>  // TODO: needed for window_close_policy. check if we can move the definition somewhere else.
+#include <_vent/platform/ic_window.hpp>
+#include <_vent/core/ir_client.hpp>  // TODO: needed for window_close_policy. check if we can move the definition somewhere else.
+
+#include <vector>
 
 namespace vent {
 

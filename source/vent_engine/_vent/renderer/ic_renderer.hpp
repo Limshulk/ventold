@@ -9,7 +9,11 @@
 // without exposing backend-specific details (like vulkan or directx).
 
 #include <_vent/vent_sdk.hpp>
+#include <_vent/renderer/vertex.hpp>
+#include <_vent/renderer/render_command.hpp>
+
 #include <memory>
+#include <span>
 
 namespace vent {
 
@@ -53,7 +57,32 @@ public:
     // —————————————————————————————————————————————————————————————————————————
 
     /// @brief create a graphics pipeline from the given description.
-    virtual auto create_graphics_pipeline(const pipeline_desc& desc) -> std::unique_ptr<ic_pipeline> = 0;
+    virtual auto create_graphics_pipeline(const pipeline_desc& desc)
+        -> std::unique_ptr<ic_pipeline> = 0;
+
+    /// @brief bind a graphics pipeline for the current frame.
+    /// @param pipeline the pipeline to bind.
+    virtual auto bind_pipeline(ic_pipeline* pipeline) -> void = 0;
+
+    // --- mesh management ---
+    // —————————————————————————————————————————————————————————————————————————
+
+    /// @brief create a mesh from a list of vertices.
+    /// @param vertices the raw vertex data.
+    /// @return an opaque handle to the mesh.
+    virtual auto create_mesh(std::span<const vertex> vertices)
+        -> mesh_handle = 0;
+
+    // --- rendering submission ---
+    // —————————————————————————————————————————————————————————————————————————
+
+    /// @brief get a thread-local command list for the current worker thread.
+    /// this allows multiple threads to safely record draw commands in parallel.
+    virtual auto get_command_list() -> command_list& = 0;
+
+    /// @brief submit all recorded command lists to the renderer.
+    /// usually called once per frame by the main thread.
+    virtual auto submit_command_lists(std::span<command_list* const> lists) -> void = 0;
 };
 
 }  // namespace vent

@@ -6,7 +6,7 @@
 //
 // extends ic_platform with engine-internal operations.
 
-#include <_vent/interfaces/ic_platform.hpp>
+#include <_vent/platform/ic_platform.hpp>
 
 namespace vent {
 

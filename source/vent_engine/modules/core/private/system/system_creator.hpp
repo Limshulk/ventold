@@ -18,8 +18,8 @@
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/system/system_initialization_result.hpp>
-#include <_vent/interfaces/ic_job.hpp>
-#include <_vent/interfaces/ic_event_bus.hpp>
+#include <_vent/job/ic_job.hpp>
+#include <_vent/core/ic_event_bus.hpp>
 
 #include <atomic>
 #include <functional>

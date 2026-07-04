@@ -8,10 +8,10 @@
 
 #include <asset/interfaces/i_asset.hpp>
 
-#include <_vent/interfaces/ic_log.hpp>
-#include <_vent/interfaces/ir_dependencies.hpp>
+#include <_vent/core/ic_log.hpp>
+#include <_vent/core/ir_dependencies.hpp>
 
-#include <_vent/shader_asset.hpp>
+#include <_vent/asset/shader.hpp>
 #include <_vent/system/system_base.hpp>
 
 #include <unordered_map>
@@ -24,9 +24,16 @@ class asset_system final
     : public system_base
     , public i_asset
     , public ir_dependencies {
-    VENT_NO_COPY_MOVE(asset_system);
 public:
-    asset_system() = default;
+    asset_system()           = default;
+    ~asset_system() override = default;
+
+    VENT_NO_COPY_MOVE(asset_system);
+
+public:
+    // --- system interface implementation ---
+    // —————————————————————————————————————————————————————————————————————————
+    // asset is a non-bootstrap system.
 
     [[nodiscard]]
     auto name() const -> std::string_view override {
@@ -34,15 +41,28 @@ public:
     }
 
     [[nodiscard]]
+    auto on_initialization(i32 stage = 0)
+        -> system_initialization_result override {
+        return initialize() ? system_initialization_result::complete()
+                            : system_initialization_result::failed();
+    }
+
+    auto on_shutdown() -> void override { shutdown(); }
+
+private:
+    /// @brief initialize the asset system.
+    [[nodiscard]]
+    auto initialize() -> bool;
+
+    /// @brief shutdown.
+    auto shutdown() -> void;
+
+public:
+    [[nodiscard]]
     auto dependencies() const -> std::span<const std::string_view> override {
         static constexpr std::string_view deps[] = {ic_log::system_name};
         return deps;
     }
-
-    [[nodiscard]]
-    auto on_initialization(i32 stage) -> system_initialization_result override;
-
-    auto on_shutdown() -> void override;
 
     auto mount(std::string_view protocol, std::string_view physical_path)
         -> void override;
@@ -54,8 +74,7 @@ public:
     auto read_binary_file(std::string_view virtual_path) const
         -> std::vector<u8> override;
 
-    auto load_shader(std::string_view virtual_path)
-        -> shader_asset* override;
+    auto load_shader(std::string_view virtual_path) -> shader_asset* override;
 
     auto release_shader(shader_asset* asset) -> void override;
 

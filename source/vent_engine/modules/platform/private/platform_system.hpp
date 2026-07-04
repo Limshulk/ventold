@@ -71,6 +71,13 @@ private:
     std::atomic<window_close_policy> _close_policy {
         window_close_policy::exit_on_main_close};
 
+    /// @brief initialize the platform system.
+    [[nodiscard]]
+    auto initialize() -> bool;
+
+    /// @brief shutdown.
+    auto shutdown() -> void;
+
 public:
     // --- ic_platform ---
     // —————————————————————————————————————————————————————————————————————————
@@ -147,13 +154,6 @@ public:
             return future.get();
         }
     }
-
-    /// @brief initialize the platform system with config.
-    [[nodiscard]]
-    auto initialize() -> bool;
-
-    /// @brief shutdown.
-    auto shutdown() -> void;
 
 private:
     /// @brief entry point for the native platform thread.

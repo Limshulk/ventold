@@ -23,9 +23,9 @@
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/system/system_base.hpp>
-#include <_vent/interfaces/ir_client.hpp>
-#include <_vent/interfaces/ir_dependencies.hpp>
-#include <_vent/interfaces/ir_runnable.hpp>
+#include <_vent/core/ir_client.hpp>
+#include <_vent/core/ir_dependencies.hpp>
+#include <_vent/core/ir_runnable.hpp>
 
 #include <atomic>
 #include <functional>

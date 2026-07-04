@@ -17,11 +17,12 @@
 //     real log system isn't available or has shut down.
 //   - code can use log()->info(...) uniformly throughout the engine.
 
-#include <_vent/interfaces/ic_log.hpp>
+#include <_vent/core/ic_log.hpp>
 
 #include <core/thread_registry.hpp>
 
 #include <print>
+#include <chrono>
 
 namespace vent {
 
@@ -95,10 +96,12 @@ private:
 #endif
         auto now = std::chrono::floor<std::chrono::milliseconds>(
             std::chrono::system_clock::now());
+        auto time = std::chrono::hh_mm_ss{
+            now - std::chrono::floor<std::chrono::days>(now)};
 
-        // format: [HH:MM:SS:sss] [LEVEL] THREAD | [module] message.
-        std::println("[{:%H:%M:%S}] {}[{}]{} {:>4} | [{}] {}",
-                     now,
+        // format: [HH:MM:SS.sss] [LEVEL] THREAD | [module] message.
+        std::println("[{}] {}[{}]{} {:>4} | [{}] {}",
+                     time,
                      level_color(lvl),
                      level_name(lvl),
                      reset_color(),

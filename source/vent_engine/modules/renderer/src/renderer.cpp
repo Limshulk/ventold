@@ -6,12 +6,13 @@
 
 #include <renderer.hpp>
 
-#include <core/interfaces/i_system_registry.hpp>
-#include <_vent/interfaces/ic_pipeline.hpp>
-#include <core/system/registration.hpp>
-#include <platform/interfaces/i_window.hpp>
-
 #include <_vent/accessors.hpp>
+
+#include <core/interfaces/i_system_registry.hpp>
+#include <core/system/registration.hpp>
+
+#include <renderer/interfaces/i_pipeline.hpp>
+#include <platform/interfaces/i_window.hpp>
 
 namespace vent {
 
@@ -120,6 +121,8 @@ auto renderer_system::initialize() -> system_initialization_result {
                     }
                 }
             }
+        } else {
+            log()->trace("renderer", "no existing windows found.");
         }
     }
 
@@ -171,11 +174,58 @@ auto renderer_system::end_frame(ic_window* window) -> void {
     }
 }
 
-auto renderer_system::create_graphics_pipeline(const pipeline_desc& desc) -> std::unique_ptr<ic_pipeline> {
+auto renderer_system::create_graphics_pipeline(const pipeline_desc& desc)
+    -> std::unique_ptr<ic_pipeline> {
     if (_backend) {
         return _backend->create_graphics_pipeline(desc);
     }
     return nullptr;
+}
+
+auto renderer_system::bind_pipeline(ic_pipeline* pipeline) -> void {
+    if (_backend) {
+        _backend->bind_pipeline(pipeline);
+    }
+}
+
+auto renderer_system::create_mesh(std::span<const vertex> vertices)
+    -> mesh_handle {
+    if (_backend) {
+        return _backend->create_mesh(vertices);
+    }
+    return INVALID_MESH_HANDLE;
+}
+
+auto renderer_system::get_command_list() -> command_list& {
+    thread_local command_list tls_cmd_list;
+    return tls_cmd_list;
+}
+
+auto renderer_system::submit_command_lists(std::span<command_list* const> lists) -> void {
+    if (!_backend) return;
+
+    usize total_packets = 0;
+    for (auto* list : lists) {
+        list->sort();
+        total_packets += list->get_packets().size();
+    }
+
+    std::vector<render_packet> all_packets;
+    all_packets.reserve(total_packets);
+    for (auto* list : lists) {
+        auto packets = list->get_packets();
+        all_packets.insert(all_packets.end(), packets.begin(), packets.end());
+    }
+
+    std::ranges::sort(all_packets, [](const render_packet& a, const render_packet& b) {
+        return a.key < b.key;
+    });
+
+    _backend->execute_packets(all_packets);
+
+    for (auto* list : lists) {
+        list->clear();
+    }
 }
 
 }  // namespace vent

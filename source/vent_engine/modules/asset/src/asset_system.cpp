@@ -15,21 +15,22 @@
 
 namespace vent {
 
-auto asset_system::on_initialization(i32 stage)
-    -> system_initialization_result {
-    if (stage != 0) {
-        return system_initialization_result::complete();
-    }
+auto asset_system::initialize() -> bool {
 
+    log()->trace("asset", "initializing asset system...");
     // todo: mount engine assets automatically?
     // we could do this in the launcher, but for now we'll do it manually.
 
-    log()->info("asset", "initialized virtual file system.");
-    return system_initialization_result::complete();
+    log()->info("asset", "initialized asset system.");
+    return true;
 }
 
-auto asset_system::on_shutdown() -> void {
+auto asset_system::shutdown() -> void {
+    log()->trace("asset", "shutting down asset system...");
+
     _mount_points.clear();
+
+    log()->trace("asset", "asset shutdown complete.");
 }
 
 auto asset_system::mount(std::string_view protocol,
@@ -93,7 +94,7 @@ auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
         return nullptr;
     }
 
-    auto asset   = std::make_unique<shader_asset>();
+    auto asset = std::make_unique<shader_asset>();
 
     // copy u8 vector to u32 vector. sizes must be a multiple of 4 (spirv
     // requirement).

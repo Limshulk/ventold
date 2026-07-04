@@ -6,7 +6,7 @@
 //
 // extends ic_renderer.
 
-#include <_vent/interfaces/ic_renderer.hpp>
+#include <_vent/renderer/ic_renderer.hpp>
 
 namespace vent {
 

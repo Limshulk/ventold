@@ -99,6 +99,10 @@ private:
 public:
     virtual ~ic_log() = default;
 
+    VENT_API void format_and_log(log_level lvl, const char* module, std::string_view fmt, std::format_args args);
+    VENT_API void format_and_log_full(log_level lvl, const char* module, const std::source_location& loc, std::string_view fmt, std::format_args args);
+
+
     // --- short format ---
     // —————————————————————————————————————————————————————————————————————————3
     // 1-line format convenience methods.
@@ -110,84 +114,42 @@ public:
     auto trace(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        // if (log_level::trace < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message(log_level::trace, module, buffer);
+        format_and_log(log_level::trace, module, fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto debug(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        // if (log_level::debug < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message(log_level::debug, module, buffer);
+        format_and_log(log_level::debug, module, fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto info(const char*                   module,
-              std::format_string<args_t...> fmt,
-              args_t&&... args) -> void {
-        // if (log_level::info < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message(log_level::info, module, buffer);
+               std::format_string<args_t...> fmt,
+               args_t&&... args) -> void {
+        format_and_log(log_level::info, module, fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto warn(const char*                   module,
-              std::format_string<args_t...> fmt,
-              args_t&&... args) -> void {
-        // if (log_level::warning < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message(log_level::warning, module, buffer);
+               std::format_string<args_t...> fmt,
+               args_t&&... args) -> void {
+        format_and_log(log_level::warning, module, fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto error(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        // if (log_level::error < min_level())
-        //     return;  // that is kinda weird but nvm.
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message(log_level::error, module, buffer);
+        format_and_log(log_level::error, module, fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto critical(const char*                   module,
-                  std::format_string<args_t...> fmt,
-                  args_t&&... args) -> void {
-        // if (log_level::critical < min_level())
-        //     return;  // that is surely retarded.
-        char buffer[4096];
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message(log_level::critical, module, buffer);
+               std::format_string<args_t...> fmt,
+               args_t&&... args) -> void {
+        format_and_log(log_level::critical, module, fmt.get(), std::make_format_args(args...));
     }
 
     // --- full format ---
@@ -200,19 +162,7 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        // if (log_level::trace < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message_full(log_level::trace,
-                     module,
-                     buffer,
-                     fmt.loc.file_name(),
-                     fmt.loc.function_name(),
-                     static_cast<u32>(fmt.loc.line()));
+        format_and_log_full(log_level::trace, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -220,19 +170,7 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        // if (log_level::debug < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message_full(log_level::debug,
-                     module,
-                     buffer,
-                     fmt.loc.file_name(),
-                     fmt.loc.function_name(),
-                     static_cast<u32>(fmt.loc.line()));
+        format_and_log_full(log_level::debug, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -240,19 +178,7 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        // if (log_level::info < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message_full(log_level::info,
-                     module,
-                     buffer,
-                     fmt.loc.file_name(),
-                     fmt.loc.function_name(),
-                     static_cast<u32>(fmt.loc.line()));
+        format_and_log_full(log_level::info, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -260,19 +186,7 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        // if (log_level::warning < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message_full(log_level::warning,
-                     module,
-                     buffer,
-                     fmt.loc.file_name(),
-                     fmt.loc.function_name(),
-                     static_cast<u32>(fmt.loc.line()));
+        format_and_log_full(log_level::warning, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -280,19 +194,7 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        // if (log_level::error < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message_full(log_level::error,
-                     module,
-                     buffer,
-                     fmt.loc.file_name(),
-                     fmt.loc.function_name(),
-                     static_cast<u32>(fmt.loc.line()));
+        format_and_log_full(log_level::error, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -300,19 +202,7 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        // if (log_level::critical < min_level())
-        //     return;
-        char buffer[4096];  // todo: limit::log::message_size configurable!
-        auto result = std::format_to_n(
-            buffer, sizeof(buffer) - 1, fmt.fmt, std::forward<args_t>(args)...);
-        buffer[(std::min) (static_cast<size_t>(result.size),
-                           sizeof(buffer) - 1)] = '\0';
-        message_full(log_level::critical,
-                     module,
-                     buffer,
-                     fmt.loc.file_name(),
-                     fmt.loc.function_name(),
-                     static_cast<u32>(fmt.loc.line()));
+        format_and_log_full(log_level::critical, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
     }
 };
 

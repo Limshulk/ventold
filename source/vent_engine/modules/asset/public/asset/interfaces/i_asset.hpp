@@ -6,7 +6,7 @@
 //
 // internal asset system interface. currently empty.
 
-#include <_vent/interfaces/ic_asset.hpp>
+#include <_vent/asset/ic_asset.hpp>
 
 namespace vent {
 

@@ -14,13 +14,13 @@
 //   vent::log()->...;
 //   vent::system().get<ic_audio>()->...;
 
-#include <_vent/interfaces/ic_asset.hpp>
-#include <_vent/interfaces/ic_system_registry.hpp>
-#include <_vent/interfaces/ic_job.hpp>
-#include <_vent/interfaces/ic_log.hpp>
-#include <_vent/interfaces/ic_event_bus.hpp>
-#include <_vent/interfaces/ic_platform.hpp>
-#include <_vent/interfaces/ic_renderer.hpp>
+#include <_vent/asset/ic_asset.hpp>
+#include <_vent/core/ic_system_registry.hpp>
+#include <_vent/job/ic_job.hpp>
+#include <_vent/core/ic_log.hpp>
+#include <_vent/core/ic_event_bus.hpp>
+#include <_vent/platform/ic_platform.hpp>
+#include <_vent/renderer/ic_renderer.hpp>
 
 namespace vent {
 

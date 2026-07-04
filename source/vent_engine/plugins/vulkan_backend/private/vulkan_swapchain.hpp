@@ -9,7 +9,7 @@
 // rendering (vkCmdBeginRendering/vkCmdEndRendering) instead of render passes.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/interfaces/ic_window.hpp>
+#include <_vent/platform/ic_window.hpp>
 
 #include <vulkan/vulkan_raii.hpp>
 
@@ -66,8 +66,24 @@ public:
     /// vkDeviceWaitIdle.
     auto wait_for_fences() -> void;
 
-    [[nodiscard]] auto get_image_format() const -> vk::Format { return _image_format; }
-    [[nodiscard]] auto get_extent() const -> vk::Extent2D { return _extent; }
+    [[nodiscard]]
+    auto get_image_format() const -> vk::Format {
+        return _image_format;
+    }
+    [[nodiscard]]
+    auto get_extent() const -> vk::Extent2D {
+        return _extent;
+    }
+
+    [[nodiscard]]
+    auto get_command_buffer() -> vk::raii::CommandBuffer& {
+        return _command_buffers[_current_frame];
+    }
+
+    [[nodiscard]]
+    auto get_current_frame_index() const -> u32 {
+        return _current_frame;
+    }
 
 private:
     const vk::raii::Device&         _device;
@@ -89,7 +105,6 @@ private:
     // --- synchronization ---
     std::vector<vk::raii::Semaphore> _image_available_semaphores;
     std::vector<vk::raii::Semaphore> _render_finished_semaphores;
-    std::vector<vk::raii::Semaphore> _retired_semaphores;
     std::vector<vk::raii::Fence>     _in_flight_fences;
 
     // --- command buffers ---

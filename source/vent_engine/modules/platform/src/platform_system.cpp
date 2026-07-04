@@ -310,9 +310,10 @@ auto platform_system::create_window(const window_desc& desc) -> ic_window* {
         _windows.push_back(std::move(win));
 
         // publish window.created event for listeners (e.g., renderer
-        // staged init).
+        // staged init). wait for them to finish so that surfaces are
+        // fully created before the client regains control.
         if (auto* bus = event_if_ready()) {
-            bus->publish("window.created", static_cast<void*>(handle));
+            bus->publish_wait("window.created", static_cast<void*>(handle));
         }
 
         log()->trace("platform", "window created: '{}'.", desc.title);

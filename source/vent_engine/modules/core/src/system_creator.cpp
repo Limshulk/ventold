@@ -13,7 +13,7 @@
 
 #include <_vent/accessors.hpp>
 #include <_vent/client_registration.hpp>
-#include <_vent/interfaces/ir_dependencies.hpp>
+#include <_vent/core/ir_dependencies.hpp>
 
 #include <cassert>
 
@@ -368,6 +368,16 @@ auto system_creator::initialize_regular(init_context&                ctx,
         if (!entry)
             continue;
 
+        // skip if no dependencies.
+        if (entry->pending_dependencies.empty()) {
+            log()->trace("system_creator",
+                         "  system '{}' has no dependencies and is ready to "
+                         "start initialization.",
+                         name);
+            startup_systems.push_back(name);
+            continue;
+        }
+
         // remove already-ready dependencies.
         auto it = entry->pending_dependencies.begin();
         while (it != entry->pending_dependencies.end()) {
@@ -435,12 +445,21 @@ auto system_creator::initialize_regular(init_context&                ctx,
                  names.size() - startup_systems.size());
 
     // fire initial batch.
+    log()->trace("system_creator", "firing initialization for systems:");
     for (const auto& name : startup_systems) {
+        log()->trace("system_creator", "  - '{}'", name);
         fire_init(name);
     }
 
+    log()->trace("system_creator",
+                 "wait for all fired systems to complete first pass.");
     // wait for all systems to complete first pass.
     while (first_pass_count.load(std::memory_order_acquire) < result.total) {
+        // log progress.
+        log()->trace("system_creator",
+                     "  progress: {} / {} systems completed.",
+                     first_pass_count.load(std::memory_order_relaxed),
+                     result.total);
         first_pass_count.wait(first_pass_count.load(std::memory_order_relaxed),
                               std::memory_order_acquire);
     }

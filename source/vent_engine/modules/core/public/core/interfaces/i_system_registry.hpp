@@ -7,7 +7,7 @@
 // extends the client-faced ic_system_registry with additional functionality and
 // lifecycle management for engine-internal use.
 
-#include <_vent/interfaces/ic_system_registry.hpp>
+#include <_vent/core/ic_system_registry.hpp>
 
 #include <string_view>
 

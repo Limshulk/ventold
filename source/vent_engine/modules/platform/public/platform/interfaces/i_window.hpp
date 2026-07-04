@@ -6,7 +6,7 @@
 //
 // extends ic_window with internal engine operations.
 
-#include <_vent/interfaces/ic_window.hpp>
+#include <_vent/platform/ic_window.hpp>
 
 namespace vent {
 

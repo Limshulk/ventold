@@ -8,9 +8,9 @@
 // termination conditions.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/interfaces/ir_runnable.hpp>
-#include <_vent/interfaces/ir_client.hpp>
-#include <_vent/interfaces/ic_platform.hpp>
+#include <_vent/core/ir_runnable.hpp>
+#include <_vent/core/ir_client.hpp>
+#include <_vent/platform/ic_platform.hpp>
 
 #include <atomic>
 #include <chrono>

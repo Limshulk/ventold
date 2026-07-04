@@ -29,6 +29,7 @@ vent_create_plugin(
         src/vulkan_backend_system.cpp
         src/vulkan_swapchain.cpp
         src/vulkan_pipeline.cpp
+        src/vma_impl.cpp
 
     INTERNAL_DEPS
         core

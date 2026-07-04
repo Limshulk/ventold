@@ -5,7 +5,7 @@
 // implements the sdk task class methods. these are exported via VENT_API to the
 // client sdk
 
-#include <_vent/interfaces/ic_job.hpp>
+#include <_vent/job/ic_job.hpp>
 #include <_vent/accessors.hpp>
 
 #include <job/interfaces/i_job.hpp>
@@ -15,12 +15,40 @@
 
 namespace vent {
 
-static auto get_i_job() -> i_job* {
-    //! THIS MAY RESULT IN CRASHES.
-    // if the job system isn't initialized, this cast will be invalid.
-    // job() will return the fallback job system, which does NOT implement i_job.
-    // todo: FIX!
-    return static_cast<i_job*>(job());
+static auto internal_wait(task_state* state) -> void {
+    if (!state)
+        return;
+    if (state->completed.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    ic_job* j = job();
+    if (j && !j->is_fallback()) {
+        static_cast<i_job*>(j)->wait_for_state(state);
+    } else {
+        // fallback job system is always synchronous, so if we reach here
+        // and it's not completed, we just spin. but fallback jobs complete
+        // immediately.
+        while (!state->completed.load(std::memory_order_acquire)) {
+            // spin (should not happen with fallback).
+        }
+    }
+}
+
+static auto internal_release(task_state* state) -> void {
+    if (!state)
+        return;
+
+    ic_job* j = job();
+    if (j && !j->is_fallback()) {
+        static_cast<i_job*>(j)->release_state(state);
+    } else {
+        // fallback release logic.
+        u32 prev = state->ref_count.fetch_sub(1, std::memory_order_acq_rel);
+        if (prev == 1) {
+            delete state;
+        }
+    }
 }
 
 // --- task lifecycle ---
@@ -31,19 +59,8 @@ task::~task() {
         return;
     }
 
-    auto* jobs = get_i_job();
-    if (!jobs) {
-        _state = nullptr;
-        return;
-    }
-
-    // wait for completion if not done.
-    if (!_state->completed.load(std::memory_order_acquire)) {
-        jobs->wait_for_state(_state);
-    }
-
-    // release our reference.
-    jobs->release_state(_state);
+    internal_wait(_state);
+    internal_release(_state);
     _state = nullptr;
 }
 
@@ -56,13 +73,8 @@ auto task::operator=(task&& other) noexcept -> task& {
     if (this != &other) {
         // release current state.
         if (_state) {
-            auto* jobs = get_i_job();
-            if (jobs) {
-                if (!_state->completed.load(std::memory_order_acquire)) {
-                    jobs->wait_for_state(_state);
-                }
-                jobs->release_state(_state);
-            }
+            internal_wait(_state);
+            internal_release(_state);
         }
 
         // transfer ownership.
@@ -87,20 +99,7 @@ auto task::is_valid() const -> bool {
 // —————————————————————————————————————————————————————————————————————————————
 
 auto task::wait() -> void {
-    if (!_state) {
-        return;
-    }
-
-    // fast path: already complete.
-    if (_state->completed.load(std::memory_order_acquire)) {
-        return;
-    }
-
-    // wait via job system.
-    auto* jobs = get_i_job();
-    if (jobs) {
-        jobs->wait_for_state(_state);
-    }
+    internal_wait(_state);
 }
 
 // --- internal helpers ---

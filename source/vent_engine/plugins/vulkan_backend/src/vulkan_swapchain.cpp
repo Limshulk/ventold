@@ -37,38 +37,21 @@ vulkan_swapchain::vulkan_swapchain(
     }
 }
 
-#include <iostream>
-
 vulkan_swapchain::~vulkan_swapchain() {
-    std::cout << "[~vulkan_swapchain] waiting idle..." << std::flush;
     _device.waitIdle();
-    std::cout << " done." << std::endl;
 
-    std::cout << "[~vulkan_swapchain] clearing swapchain..." << std::flush;
     _swapchain.clear();
-    std::cout << " done." << std::endl;
 
-    std::cout << "[~vulkan_swapchain] clearing image views..." << std::flush;
     _image_views.clear();
-    std::cout << " done." << std::endl;
 
-    std::cout << "[~vulkan_swapchain] clearing sync objects..." << std::flush;
     _in_flight_fences.clear();
-    _retired_semaphores.clear();
     _render_finished_semaphores.clear();
     _image_available_semaphores.clear();
-    std::cout << " done." << std::endl;
 
-    std::cout << "[~vulkan_swapchain] clearing command pool..." << std::flush;
     _command_buffers.clear();
     _command_pool.clear();
-    std::cout << " done." << std::endl;
 
-    std::cout << "[~vulkan_swapchain] clearing surface..." << std::flush;
     _surface.clear();
-    std::cout << " done." << std::endl;
-
-    std::cout << "[~vulkan_swapchain] completely finished." << std::endl;
 }
 
 auto vulkan_swapchain::set_frames_in_flight(u32 count) -> void {
@@ -95,21 +78,20 @@ auto vulkan_swapchain::wait_for_fences() -> void {
 }
 
 auto vulkan_swapchain::begin_frame() -> bool {
-    // 1. handle minimized window
+    // handle minimized window.
     if (_window->get_framebuffer_width() == 0 ||
         _window->get_framebuffer_height() == 0) {
         return false;
     }
 
-    // 2. wait for current frame fence
+    // wait for previous frame to complete.
     auto res = _device.waitForFences({*_in_flight_fences[_current_frame]},
                                      VK_TRUE,
                                      (std::numeric_limits<u64>::max)());
-    if (res != vk::Result::eSuccess) {
+    if (res != vk::Result::eSuccess)
         return false;
-    }
 
-    // 3. acquire next image with auto-recreation
+    // acquire next image with auto-recreation.
     bool acquire_success = false;
     for (int retry = 0; retry < 2; ++retry) {
         if (_needs_recreation) {
@@ -126,10 +108,10 @@ auto vulkan_swapchain::begin_frame() -> bool {
 
             if (acquire_res.result == vk::Result::eErrorOutOfDateKHR) {
                 _needs_recreation = true;
-                continue;  // retry
+                continue;  // retry.
             } else if (acquire_res.result == vk::Result::eSuboptimalKHR) {
                 _needs_recreation =
-                    true;  // handle as success but recreate next time
+                    true;  // handle as success but recreate next time.
             }
 
             _current_image_index = acquire_res.value;
@@ -138,7 +120,7 @@ auto vulkan_swapchain::begin_frame() -> bool {
 
         } catch (const vk::OutOfDateKHRError&) {
             _needs_recreation = true;
-            continue;  // retry
+            continue;  // retry.
         } catch (const vk::SystemError& err) {
             log()->error(
                 "vulkan", "failed to acquire swapchain image: {}", err.what());
@@ -150,33 +132,23 @@ auto vulkan_swapchain::begin_frame() -> bool {
         return false;
     }
 
-    // reset fence only when we are sure to submit
+    // reset fence when we are sure to submit.
     _device.resetFences({*_in_flight_fences[_current_frame]});
 
-    // 4. begin recording command buffer
+    // begin recording command buffer
     auto& cmd = _command_buffers[_current_frame];
     cmd.reset({});
     vk::CommandBufferBeginInfo begin_info {};
     cmd.begin(begin_info);
 
-    // 5. dynamic viewport and scissor
-    vk::Viewport viewport {.x        = 0.0f,
-                           .y        = 0.0f,
-                           .width    = static_cast<float>(_extent.width),
-                           .height   = static_cast<float>(_extent.height),
-                           .minDepth = 0.0f,
-                           .maxDepth = 1.0f};
-    cmd.setViewport(0, {viewport});
-
-    vk::Rect2D scissor {.offset = {0, 0}, .extent = _extent};
-    cmd.setScissor(0, {scissor});
-
-    // 6. transition image layout to color attachment
-    vk::ImageMemoryBarrier image_barrier_begin {
-        .srcAccessMask       = vk::AccessFlagBits::eNone,
-        .dstAccessMask       = vk::AccessFlagBits::eColorAttachmentWrite,
-        .oldLayout           = vk::ImageLayout::eUndefined,
-        .newLayout           = vk::ImageLayout::eColorAttachmentOptimal,
+    // transition swapchain image to vk::ImageLayout::eColorAttachmentOptimal.
+    vk::ImageMemoryBarrier2 barrier = {
+        .srcStageMask  = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .srcAccessMask = {},
+        .dstStageMask  = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+        .oldLayout     = vk::ImageLayout::eUndefined,
+        .newLayout     = vk::ImageLayout::eColorAttachmentOptimal,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image               = _images[_current_image_index],
@@ -185,31 +157,37 @@ auto vulkan_swapchain::begin_frame() -> bool {
                                 .levelCount     = 1,
                                 .baseArrayLayer = 0,
                                 .layerCount     = 1}};
+    vk::DependencyInfo dependency_info = {.dependencyFlags         = {},
+                                          .imageMemoryBarrierCount = 1,
+                                          .pImageMemoryBarriers    = &barrier};
+    cmd.pipelineBarrier2(dependency_info);
 
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
-                        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                        {},
-                        nullptr,
-                        nullptr,
-                        {image_barrier_begin});
+    // clear value.
+    vk::ClearValue clear_value = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
 
-    // 7. begin dynamic rendering
-    vk::ClearValue clear_color;
-    clear_color.color =
-        vk::ClearColorValue(std::array<float, 4> {0.16f, 0.16f, 0.18f, 1.0f});
-
-    vk::RenderingAttachmentInfo color_attachment {
+    // begin rendering.
+    vk::RenderingAttachmentInfo rendering_attachment_info {
         .imageView   = *_image_views[_current_image_index],
-        .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+        .imageLayout = vk::ImageLayout::eAttachmentOptimalKHR,
         .loadOp      = vk::AttachmentLoadOp::eClear,
         .storeOp     = vk::AttachmentStoreOp::eStore,
-        .clearValue  = clear_color};
+        .clearValue  = clear_value};
 
     vk::RenderingInfo rendering_info {
+        .flags                = vk::RenderingFlagBits::eContentsSecondaryCommandBuffers,
         .renderArea           = {.offset = {0, 0}, .extent = _extent},
         .layerCount           = 1,
         .colorAttachmentCount = 1,
-        .pColorAttachments    = &color_attachment};
+        .pColorAttachments    = &rendering_attachment_info};
+
+    cmd.setViewport(0,
+                    vk::Viewport(0.0f,
+                                 0.0f,
+                                 static_cast<float>(_extent.width),
+                                 static_cast<float>(_extent.height),
+                                 0.0f,
+                                 1.0f));
+    cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), _extent));
 
     cmd.beginRendering(rendering_info);
 
@@ -220,15 +198,17 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
                                  const vk::raii::Queue& present_queue) -> void {
     auto& cmd = _command_buffers[_current_frame];
 
-    // 1. end dynamic rendering
+    // end rendering.
     cmd.endRendering();
 
-    // 2. transition image layout to present
-    vk::ImageMemoryBarrier image_barrier_end {
-        .srcAccessMask       = vk::AccessFlagBits::eColorAttachmentWrite,
-        .dstAccessMask       = vk::AccessFlagBits::eNone,
-        .oldLayout           = vk::ImageLayout::eColorAttachmentOptimal,
-        .newLayout           = vk::ImageLayout::ePresentSrcKHR,
+    // transition swapchain image to vk::ImageLayout::ePresentSrcKHR.
+    vk::ImageMemoryBarrier2 barrier = {
+        .srcStageMask  = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+        .dstStageMask  = vk::PipelineStageFlagBits2::eBottomOfPipe,
+        .dstAccessMask = {},
+        .oldLayout     = vk::ImageLayout::eColorAttachmentOptimal,
+        .newLayout     = vk::ImageLayout::ePresentSrcKHR,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image               = _images[_current_image_index],
@@ -237,18 +217,15 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
                                 .levelCount     = 1,
                                 .baseArrayLayer = 0,
                                 .layerCount     = 1}};
+    vk::DependencyInfo dependency_info = {.dependencyFlags         = {},
+                                          .imageMemoryBarrierCount = 1,
+                                          .pImageMemoryBarriers    = &barrier};
+    cmd.pipelineBarrier2(dependency_info);
 
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                        vk::PipelineStageFlagBits::eBottomOfPipe,
-                        {},
-                        nullptr,
-                        nullptr,
-                        {image_barrier_end});
-
-    // 3. end command buffer recording
+    // end command buffer recording.
     cmd.end();
 
-    // 4. submit command buffer
+    // submit command buffer.
     vk::PipelineStageFlags wait_stages[] = {
         vk::PipelineStageFlagBits::eColorAttachmentOutput};
 
@@ -276,7 +253,7 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
 
     graphics_queue.submit(submit_info, *_in_flight_fences[_current_frame]);
 
-    // 5. present the image
+    // present the image.
     vk::PresentInfoKHR present_info {};
     present_info.setWaitSemaphores(signal_sem);
     present_info.setSwapchains(swapchain_handle);
@@ -299,7 +276,7 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
             "vulkan", "failed to present swapchain image: {}", err.what());
     }
 
-    // 6. advance frame index
+    // advance frame index
     _current_frame = (_current_frame + 1) % _max_frames_in_flight;
 }
 
@@ -490,35 +467,28 @@ auto vulkan_swapchain::create_sync_objects() -> bool {
 }
 
 auto vulkan_swapchain::recreate() -> bool {
+    log()->trace("vulkan",
+                 "swapchain recreation for window '{}' started.",
+                 _window->get_title());
+
     if (FILE* f = fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
         fprintf(f, "recreate() called for swapchain\n");
         fclose(f);
     }
+    log()->trace("vulkan", "log written.", _window->get_title());
     _device.waitIdle();
     if (_window->get_framebuffer_width() == 0 ||
         _window->get_framebuffer_height() == 0) {
-        return false;  // wait until not minimized
+        return false;  // wait until not minimized.
     }
 
-    // fix V9: block until THIS swapchain's fences are idle, not the whole device
+    // wait for all fences of this swapchain.
     wait_for_fences();
 
-    // cleanup only non-swapchain resources, swapchain is handled via oldSwapchain
+    // cleanup non-swapchain resources, swapchain is handled via .oldSwapchain.
     _image_views.clear();
 
-    // retire old render_finished semaphores so they are not destroyed while
-    // still in use by the present engine
-    for (auto& sem : _render_finished_semaphores) {
-        _retired_semaphores.push_back(std::move(sem));
-    }
-    _render_finished_semaphores.clear();
-    _image_available_semaphores.clear();
-    _in_flight_fences.clear();
-
-    // command pool and buffers cleared by recreation below
-
-    if (!create_swapchain() || !create_image_views() ||
-        !create_command_pool() || !create_sync_objects()) {
+    if (!create_swapchain() || !create_image_views()) {
         log()->error("vulkan", "failed to recreate swapchain!");
         return false;
     }

@@ -6,7 +6,7 @@
 //
 // extends the client-facing job system interface with internal methods.
 
-#include <_vent/interfaces/ic_job.hpp>
+#include <_vent/job/ic_job.hpp>
 
 namespace vent {
 

@@ -18,7 +18,7 @@
 //     real job system isn't available.
 //   - code calls job()->fire(...) uniformly, execution adapts automatically.
 
-#include <_vent/interfaces/ic_job.hpp>
+#include <_vent/job/ic_job.hpp>
 
 #include <core/types/task_state.hpp>
 

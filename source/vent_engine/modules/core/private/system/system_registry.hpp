@@ -12,8 +12,8 @@
 #include <core/interfaces/i_system_registry.hpp>
 #include <core/interfaces/i_event_bus.hpp>
 
-#include <_vent/interfaces/ir_runnable.hpp>
-#include <_vent/interfaces/ir_client.hpp>
+#include <_vent/core/ir_runnable.hpp>
+#include <_vent/core/ir_client.hpp>
 
 #include <system/system_entry.hpp>
 #include <system/main_loop.hpp>

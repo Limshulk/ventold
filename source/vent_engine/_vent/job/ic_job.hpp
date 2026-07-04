@@ -52,6 +52,7 @@
 #include <_vent/vent_sdk.hpp>
 
 #include <functional>
+#include <string_view>
 #include <type_traits>
 
 namespace vent {
@@ -301,9 +302,7 @@ protected:
     /// @brief internal: create a task from opaque state. subclass factory.
     /// @param state opaque state pointer.
     /// @return task handle wrapping the state.
-    static auto make_task(task_state* state) -> task {
-        return task(state);
-    }
+    static auto make_task(task_state* state) -> task { return task(state); }
 };
 
 // --- ic_job::submit template implementation ---

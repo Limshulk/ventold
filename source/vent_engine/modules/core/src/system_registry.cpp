@@ -11,7 +11,7 @@
 #include <core/interfaces/ir_bootstrap.hpp>
 
 #include <_vent/accessors.hpp>
-#include <_vent/interfaces/ir_dependencies.hpp>
+#include <_vent/core/ir_dependencies.hpp>
 
 namespace vent {
 
@@ -263,8 +263,17 @@ auto system_registry::shutdown_all() -> void {
     _runnables.clear();
     _client = nullptr;
 
-    // destroy all systems before unloading plugins. systems defined in plugins
-    // must be destroyed before the plugin code is unloaded.
+    // destroy all systems in reverse initialization order before unloading
+    // plugins. systems defined in plugins must be destroyed before the plugin
+    // code is unloaded.
+    for (auto it = safe_order.rbegin(); it != safe_order.rend(); ++it) {
+        auto entry_it = _systems.find(*it);
+        if (entry_it != _systems.end()) {
+            _systems.erase(entry_it);
+        }
+    }
+    // clear any remaining systems (like those that were pending but never
+    // initialized).
     _systems.clear();
     _interfaces.clear();
 
@@ -286,7 +295,8 @@ auto system_registry::get_interface_ptr(std::type_info const& interface_type)
     // cross-DLL RTTI on Windows. The proper fix is a string-based interface
     // ID system where each interface declares a static constexpr ID string.
     for (const auto& [type_idx, data] : _interfaces) {
-        if (std::string_view(type_idx.name()) == interface_type.name() || type_idx == std::type_index(interface_type)) {
+        if (std::string_view(type_idx.name()) == interface_type.name() ||
+            type_idx == std::type_index(interface_type)) {
             return data.first;
         }
     }
@@ -297,7 +307,8 @@ auto system_registry::get_interface_ptr_if_ready(
     std::type_info const& interface_type) -> void* {
     // TODO(#8): Same here, type_info::name() string comparison is a workaround.
     for (const auto& [type_idx, data] : _interfaces) {
-        if (std::string_view(type_idx.name()) == interface_type.name() || type_idx == std::type_index(interface_type)) {
+        if (std::string_view(type_idx.name()) == interface_type.name() ||
+            type_idx == std::type_index(interface_type)) {
             const auto& sys_name = data.second;
             auto        sys_it   = _systems.find(sys_name);
             if (sys_it != _systems.end() && sys_it->second.is_ready()) {
@@ -341,6 +352,7 @@ auto system_registry::get_role_impl(std::string_view      system_name,
 // --- i_system_registry: plugin management ---
 // —————————————————————————————————————————————————————————————————————————————
 
+// todo: should we use the job system to parallelize that?
 auto system_registry::load_plugin_library(std::string_view plugin_name)
     -> bool {
     // set loading context so static initializers track their source plugin.

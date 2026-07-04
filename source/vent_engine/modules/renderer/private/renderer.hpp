@@ -11,10 +11,10 @@
 #include <renderer/interfaces/i_render_backend.hpp>
 
 #include <_vent/accessors.hpp>
+#include <_vent/core/ir_dependencies.hpp>
+#include <_vent/platform/ic_platform.hpp>
+#include <_vent/renderer/render_command.hpp>
 #include <_vent/system/system_base.hpp>
-
-#include <_vent/interfaces/ic_platform.hpp>
-#include <_vent/interfaces/ir_dependencies.hpp>
 
 #include <mutex>
 
@@ -68,7 +68,15 @@ public:
     auto begin_frame(ic_window* window) -> bool override;
     auto end_frame(ic_window* window) -> void override;
 
-    auto create_graphics_pipeline(const pipeline_desc& desc) -> std::unique_ptr<ic_pipeline> override;
+    auto create_graphics_pipeline(const pipeline_desc& desc)
+        -> std::unique_ptr<ic_pipeline> override;
+
+    auto bind_pipeline(ic_pipeline* pipeline) -> void override;
+
+    auto create_mesh(std::span<const vertex> vertices) -> mesh_handle override;
+
+    auto get_command_list() -> command_list& override;
+    auto submit_command_lists(std::span<command_list* const> lists) -> void override;
 
 private:
     // --- targets ---
