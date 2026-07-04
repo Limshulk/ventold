@@ -90,7 +90,7 @@ mark_as_advanced(CMAKE_CXX_FLAGS_SHIP CMAKE_EXE_LINKER_FLAGS_SHIP CMAKE_SHARED_L
 
 # source directories.
 set(VENT_ROOT_DIR "${CMAKE_SOURCE_DIR}")
-set(VENT_ENGINE_DIR "${VENT_ROOT_DIR}/vent_engine")
+set(VENT_ENGINE_DIR "${VENT_ROOT_DIR}/source/vent_engine")
 set(VENT_SDK_SOURCE_DIR "${VENT_ENGINE_DIR}/_vent")
 set(VENT_MODULES_DIR "${VENT_ENGINE_DIR}/modules")
 set(VENT_PLUGINS_DIR "${VENT_ENGINE_DIR}/plugins")
@@ -166,7 +166,7 @@ function(vent_set_common_properties TARGET)
             target_link_libraries(${TARGET} PRIVATE stdc++exp)
         endif()
     elseif(VENT_COMPILER_MSVC)
-        target_compile_options(${TARGET} PRIVATE /W4 /permissive-)
+        target_compile_options(${TARGET} PRIVATE /W4 /permissive- /Zc:preprocessor)
     endif()
 endfunction()
 

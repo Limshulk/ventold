@@ -69,17 +69,18 @@ include(vent_global)
 include(vent_module)
 include(vent_plugin)
 include(vent_client)
+include(vent_shader)
 
 # --- build the sdk ---
 # the engine subdirectory builds all modules and plugins into the sdk.
 
-add_subdirectory(vent_engine)
+add_subdirectory(source/vent_engine vent_engine)
 
 # --- build applications ---
 # applications in vent_apps/ are always configured, but only built when
 # explicitly requested via VENT_APPS or VENT_ALL targets.
 
-add_subdirectory(vent_apps)
+add_subdirectory(source/vent_apps vent_apps)
 
 # --- build targets ---
 # three main targets for building:
