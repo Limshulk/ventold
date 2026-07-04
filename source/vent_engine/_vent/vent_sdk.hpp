@@ -90,12 +90,9 @@
 // --- generic & simple profiling macro ---
 
 #if defined(VENT_DEBUG) || defined(VENT_RELEASE)
-
     #include <chrono>
     #include <print>
-
     #define TIC auto ___vent_tic = std::chrono::high_resolution_clock::now();
-
     #define TOC                                                                \
         do {                                                                   \
             using namespace std::chrono;                                       \
@@ -108,7 +105,9 @@
                 std::print("PROFILE: {:.3f} µs\n", ___vent_ns / 1'000.0);      \
             }                                                                  \
         } while (0);
-
+#else
+    #define TIC
+    #define TOC
 #endif
 
 // --- base types ---
@@ -172,9 +171,11 @@ struct engine_config {
     char**             argv;          ///< command line argument values.
 };
 
+extern "C" {
 /// @brief engine entry point.
 /// @param config engine configuration from launcher.
 /// @return exit code (0 = success).
 using vent_engine_entry_fn = auto (*)(const engine_config& config) -> int;
+}
 
 }  // namespace vent

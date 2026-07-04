@@ -94,7 +94,7 @@ auto main_loop::run() -> int {
         return 1;
     }
 
-    log()->info("main_loop", "entering main loop");
+    log()->info("MAIN LOOP", "ENTERING MAIN LOOP");
 
     _running.store(true, std::memory_order_release);
     _stop_requested.store(false, std::memory_order_release);

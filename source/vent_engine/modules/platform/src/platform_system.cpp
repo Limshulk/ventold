@@ -55,6 +55,7 @@ auto platform_system::initialize() -> bool {
         });
 
     if (!init_future.get()) {
+        log()->error("platform", "platform thread initialization failed.");
         _running.store(false, std::memory_order_release);
         if (_platform_thread.joinable()) {
             _platform_thread.join();
@@ -150,7 +151,7 @@ auto platform_system::process_close_requests() -> void {
 
             switch (policy) {
                 case window_close_policy::exit_on_main_close:
-                    log()->trace("platform",
+                    log()->info("platform",
                                  "main window closed; destroying all windows");
                     for (const auto& window_ptr : _windows) {
                         add_destroy(window_ptr.get());
@@ -224,7 +225,7 @@ auto platform_system::platform_thread_main(std::promise<bool> ready) -> void {
         case GLFW_PLATFORM_WIN32: platform_str = "win32"; break;
         case GLFW_PLATFORM_COCOA: platform_str = "cocoa"; break;
     }
-    log()->trace(
+    log()->info(
         "platform", "platform initialized (backend: {}).", platform_str);
 
     ready.set_value(true);
@@ -316,7 +317,7 @@ auto platform_system::create_window(const window_desc& desc) -> ic_window* {
             bus->publish_wait("window.created", static_cast<void*>(handle));
         }
 
-        log()->trace("platform", "window created: '{}'.", desc.title);
+        log()->info("platform", "window created: '{}'.", desc.title);
         return handle;
     });
 }
@@ -339,7 +340,7 @@ auto platform_system::destroy_window(ic_window* handle) -> void {
                 });
 
             if (it == _windows.end()) {
-                log()->trace("platform",
+                log()->debug("platform",
                              "destroy_window: window already gone, ignoring.");
                 return;
             }
@@ -366,12 +367,12 @@ auto platform_system::destroy_window(ic_window* handle) -> void {
 
         if (promoted_main) {
             promoted_main->set_main(true);
-            log()->trace("platform",
+            log()->info("platform",
                          "promoted '{}' to main window",
                          promoted_main->get_title());
         }
 
-        log()->trace("platform", "window destroyed: '{}'.", title);
+        log()->info("platform", "window destroyed: '{}'.", title);
 
         if (auto* bus = event_if_ready()) {
             bus->publish_wait("window.destroyed", static_cast<void*>(handle));

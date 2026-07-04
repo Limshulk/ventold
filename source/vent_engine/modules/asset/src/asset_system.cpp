@@ -21,7 +21,7 @@ auto asset_system::initialize() -> bool {
     // todo: mount engine assets automatically?
     // we could do this in the launcher, but for now we'll do it manually.
 
-    log()->info("asset", "initialized asset system.");
+    log()->trace("asset", "initialized asset system.");
     return true;
 }
 
@@ -40,6 +40,7 @@ auto asset_system::mount(std::string_view protocol,
 }
 
 auto asset_system::resolve(std::string_view virtual_path) const -> std::string {
+    log()->trace("asset", "resolving path: '{}'", virtual_path);
     const size_t pos = virtual_path.find("://");
     if (pos == std::string_view::npos) {
         return std::string(virtual_path);
@@ -84,13 +85,15 @@ auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
     std::string path_str(virtual_path);
     auto        it = _shader_cache.find(path_str);
     if (it != _shader_cache.end()) {
+        log()->trace("asset", "shader '{}' found in cache.", virtual_path);
         return it->second.get();
     }
 
-    log()->trace("asset", "loading shader '{}'", virtual_path);
+    log()->trace("asset", "shader '{}' not in cache, reading from disk...", virtual_path);
 
     std::vector<u8> bytecode = read_binary_file(virtual_path);
     if (bytecode.empty()) {
+        log()->debug("asset", "bytecode empty for shader '{}'", virtual_path);
         return nullptr;
     }
 
@@ -111,6 +114,8 @@ auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
     shader_asset* ptr       = asset.get();
     _shader_cache[path_str] = std::move(asset);
 
+    log()->trace("asset", "shader '{}' successfully loaded and cached.", virtual_path);
+
     return ptr;
 }
 
@@ -119,8 +124,10 @@ auto asset_system::release_shader(shader_asset* asset) -> void {
         return;
 
     // find the asset in the cache and remove it.
+    log()->trace("asset", "releasing shader asset.");
     for (auto it = _shader_cache.begin(); it != _shader_cache.end(); ++it) {
         if (it->second.get() == asset) {
+            log()->trace("asset", "shader asset found in cache, releasing it.");
             _shader_cache.erase(it);
             return;
         }

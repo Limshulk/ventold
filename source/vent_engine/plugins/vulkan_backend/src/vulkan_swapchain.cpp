@@ -55,6 +55,7 @@ vulkan_swapchain::~vulkan_swapchain() {
 }
 
 auto vulkan_swapchain::set_frames_in_flight(u32 count) -> void {
+    log()->trace("vulkan", "set_frames_in_flight to {}", count);
     if (count == 0)
         return;
     if (_max_frames_in_flight != count) {
@@ -65,6 +66,7 @@ auto vulkan_swapchain::set_frames_in_flight(u32 count) -> void {
 }
 
 auto vulkan_swapchain::wait_for_fences() -> void {
+    log()->trace("vulkan", "waiting for fences");
     std::vector<vk::Fence> raw_fences;
     raw_fences.reserve(_in_flight_fences.size());
     for (const auto& fence : _in_flight_fences) {
@@ -174,9 +176,9 @@ auto vulkan_swapchain::begin_frame() -> bool {
         .clearValue  = clear_value};
 
     vk::RenderingInfo rendering_info {
-        .flags                = vk::RenderingFlagBits::eContentsSecondaryCommandBuffers,
-        .renderArea           = {.offset = {0, 0}, .extent = _extent},
-        .layerCount           = 1,
+        .flags      = vk::RenderingFlagBits::eContentsSecondaryCommandBuffers,
+        .renderArea = {.offset = {0, 0}, .extent = _extent},
+        .layerCount = 1,
         .colorAttachmentCount = 1,
         .pColorAttachments    = &rendering_attachment_info};
 
@@ -281,6 +283,7 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
 }
 
 auto vulkan_swapchain::create_swapchain() -> bool {
+    log()->trace("vulkan", "creating swapchain for '{}'", _window->get_title());
     auto capabilities  = _physical_device.getSurfaceCapabilitiesKHR(*_surface);
     auto formats       = _physical_device.getSurfaceFormatsKHR(*_surface);
     auto present_modes = _physical_device.getSurfacePresentModesKHR(*_surface);
@@ -379,6 +382,7 @@ auto vulkan_swapchain::create_swapchain() -> bool {
 }
 
 auto vulkan_swapchain::create_image_views() -> bool {
+    log()->trace("vulkan", "creating image views");
     _image_views.clear();
     _image_views.reserve(_images.size());
 
@@ -406,6 +410,7 @@ auto vulkan_swapchain::create_image_views() -> bool {
 }
 
 auto vulkan_swapchain::create_command_pool() -> bool {
+    log()->trace("vulkan", "creating command pool");
     vk::CommandPoolCreateInfo pool_info {
         .flags            = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
         .queueFamilyIndex = _graphics_family};
@@ -427,6 +432,7 @@ auto vulkan_swapchain::create_command_pool() -> bool {
 }
 
 auto vulkan_swapchain::create_sync_objects() -> bool {
+    log()->trace("vulkan", "creating sync objects");
     vk::SemaphoreCreateInfo semaphore_info {};
     vk::FenceCreateInfo     fence_info {.flags =
                                         vk::FenceCreateFlagBits::eSignaled};
@@ -467,15 +473,16 @@ auto vulkan_swapchain::create_sync_objects() -> bool {
 }
 
 auto vulkan_swapchain::recreate() -> bool {
-    log()->trace("vulkan",
-                 "swapchain recreation for window '{}' started.",
-                 _window->get_title());
+    log()->info("vulkan",
+                "swapchain recreation for window '{}' started.",
+                _window->get_title());
 
     if (FILE* f = fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
         fprintf(f, "recreate() called for swapchain\n");
         fclose(f);
     }
-    log()->trace("vulkan", "log written.", _window->get_title());
+    log()->trace(
+        "vulkan", "swapchain recreation: log written.", _window->get_title());
     _device.waitIdle();
     if (_window->get_framebuffer_width() == 0 ||
         _window->get_framebuffer_height() == 0) {
@@ -493,7 +500,7 @@ auto vulkan_swapchain::recreate() -> bool {
         return false;
     }
 
-    log()->trace(
+    log()->info(
         "vulkan", "swapchain recreated for window '{}'.", _window->get_title());
     return true;
 }

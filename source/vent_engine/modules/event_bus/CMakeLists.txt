@@ -1,13 +1,14 @@
 # vent build system.
 # ——————————————————————
-# the asset module handles file loading and virtual file system.
-# output: sdk/lib/libvent_asset.a
+# the event_bus module provides the event dispatching system.
+# output: sdk/lib/libvent_event_bus.a
 
 vent_create_module(
-    NAME asset
+    NAME event_bus
     SOURCES
-        src/asset_system.cpp
+        src/event_bus_system.cpp
     INTERNAL_DEPS
         core
         log
+        job
 )

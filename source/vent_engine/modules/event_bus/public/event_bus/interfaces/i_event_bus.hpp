@@ -7,7 +7,7 @@
 // extends the client-facing ic_event_bus by additional, engine-internal
 // functionality.
 
-#include <_vent/core/ic_event_bus.hpp>
+#include <_vent/event_bus/ic_event_bus.hpp>
 
 namespace vent {
 

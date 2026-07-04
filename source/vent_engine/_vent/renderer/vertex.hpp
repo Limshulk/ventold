@@ -1,6 +1,6 @@
 #pragma once
 //
-// renderer module.
+// vent public sdk.
 // vertex structures.
 // ——————————————————————
 //
@@ -8,14 +8,14 @@
 
 #include <_vent/vent_sdk.hpp>
 
-#include <_vent/math/vector.hpp>
+#include <_vent/math/math.hpp>
 
 namespace vent {
 
 /// @brief standard vertex structure for 3d meshes.
 struct vertex {
-    math::float3 position;
-    math::float3 color;
+    math::vec3 position;
+    math::vec3 color;
 };
 
 // todo: this has no right to be here.

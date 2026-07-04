@@ -78,16 +78,6 @@ private:
         return name;
     }
 
-    /// @brief cleanly exit the current thread. called from inside the thread.
-    static void exit_thread() {
-#ifdef VENT_WINDOWS
-        ExitThread(0);
-#elif defined(VENT_LINUX)
-        pthread_exit(nullptr);
-#else
-        std::exit(0);
-#endif
-    }
 
 public:
     /// @brief maximal name length. 4 characters + null terminator.
@@ -135,6 +125,17 @@ public:
         return std::format("{:04}", id % 10000);
     }
 
+    /// @brief cleanly exit the current thread. called from inside the thread.
+    static void exit_thread() {
+#ifdef VENT_WINDOWS
+        ExitThread(0);
+#elif defined(VENT_LINUX)
+        pthread_exit(nullptr);
+#else
+        std::exit(0);
+#endif
+    }
+
     /// @brief spawn a new std::thread, automatically registering it and
     ///   handling cleanup.
     /// @tparam F the function type to execute.
@@ -157,6 +158,7 @@ public:
 
                 // automatically unregister and cleanly terminate the thread.
                 unregister_thread();
+
                 exit_thread();
             });
     }

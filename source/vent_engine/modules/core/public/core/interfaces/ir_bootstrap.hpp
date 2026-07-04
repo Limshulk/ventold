@@ -14,6 +14,8 @@
 // usage:
 //   class my_core_system : public system_base, public ir_bootstrap { ... };
 
+#include <_vent/vent_sdk.hpp>
+
 namespace vent {
 
 /// @brief marker interface for bootstrap systems. systems implementing this
@@ -21,7 +23,12 @@ namespace vent {
 class ir_bootstrap {
 public:
     virtual ~ir_bootstrap() = default;
-    // todo: add priority levels for bootstrap ordering.
+    /// @brief priority level for initialization. lower values initialize first.
+    /// @return the priority level.
+    [[nodiscard]]
+    virtual auto bootstrap_priority() const -> i32 {
+        return 0;
+    }
 };
 
 }  // namespace vent

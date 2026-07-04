@@ -68,6 +68,8 @@ struct format_string_with_loc {
 
 class ic_log {
 public:
+    virtual ~ic_log() = default;
+
     static constexpr std::string_view system_name = "vent.system.log";
 
 private:
@@ -96,15 +98,20 @@ private:
                               const char* file,
                               const char* function,
                               u32         line) -> void = 0;
+
 public:
-    virtual ~ic_log() = default;
-
-    VENT_API void format_and_log(log_level lvl, const char* module, std::string_view fmt, std::format_args args);
-    VENT_API void format_and_log_full(log_level lvl, const char* module, const std::source_location& loc, std::string_view fmt, std::format_args args);
-
+    VENT_API void format_and_log(log_level        lvl,
+                                 const char*      module,
+                                 std::string_view fmt,
+                                 std::format_args args);
+    VENT_API void format_and_log_full(log_level                   lvl,
+                                      const char*                 module,
+                                      const std::source_location& loc,
+                                      std::string_view            fmt,
+                                      std::format_args            args);
 
     // --- short format ---
-    // —————————————————————————————————————————————————————————————————————————3
+    // —————————————————————————————————————————————————————————————————————————
     // 1-line format convenience methods.
     // usage: log->info("module", "message with {} args", 42);
     // note: we could use std::format for better code readability, but using a
@@ -114,42 +121,58 @@ public:
     auto trace(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        format_and_log(log_level::trace, module, fmt.get(), std::make_format_args(args...));
+        format_and_log(log_level::trace,
+                       module,
+                       fmt.get(),
+                       std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto debug(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        format_and_log(log_level::debug, module, fmt.get(), std::make_format_args(args...));
+        format_and_log(log_level::debug,
+                       module,
+                       fmt.get(),
+                       std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto info(const char*                   module,
-               std::format_string<args_t...> fmt,
-               args_t&&... args) -> void {
-        format_and_log(log_level::info, module, fmt.get(), std::make_format_args(args...));
+              std::format_string<args_t...> fmt,
+              args_t&&... args) -> void {
+        format_and_log(
+            log_level::info, module, fmt.get(), std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto warn(const char*                   module,
-               std::format_string<args_t...> fmt,
-               args_t&&... args) -> void {
-        format_and_log(log_level::warning, module, fmt.get(), std::make_format_args(args...));
+              std::format_string<args_t...> fmt,
+              args_t&&... args) -> void {
+        format_and_log(log_level::warning,
+                       module,
+                       fmt.get(),
+                       std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto error(const char*                   module,
                std::format_string<args_t...> fmt,
                args_t&&... args) -> void {
-        format_and_log(log_level::error, module, fmt.get(), std::make_format_args(args...));
+        format_and_log(log_level::error,
+                       module,
+                       fmt.get(),
+                       std::make_format_args(args...));
     }
 
     template <typename... args_t>
     auto critical(const char*                   module,
-               std::format_string<args_t...> fmt,
-               args_t&&... args) -> void {
-        format_and_log(log_level::critical, module, fmt.get(), std::make_format_args(args...));
+                  std::format_string<args_t...> fmt,
+                  args_t&&... args) -> void {
+        format_and_log(log_level::critical,
+                       module,
+                       fmt.get(),
+                       std::make_format_args(args...));
     }
 
     // --- full format ---
@@ -162,7 +185,11 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        format_and_log_full(log_level::trace, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
+        format_and_log_full(log_level::trace,
+                            module,
+                            fmt.loc,
+                            fmt.fmt.get(),
+                            std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -170,7 +197,11 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        format_and_log_full(log_level::debug, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
+        format_and_log_full(log_level::debug,
+                            module,
+                            fmt.loc,
+                            fmt.fmt.get(),
+                            std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -178,7 +209,11 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        format_and_log_full(log_level::info, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
+        format_and_log_full(log_level::info,
+                            module,
+                            fmt.loc,
+                            fmt.fmt.get(),
+                            std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -186,7 +221,11 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        format_and_log_full(log_level::warning, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
+        format_and_log_full(log_level::warning,
+                            module,
+                            fmt.loc,
+                            fmt.fmt.get(),
+                            std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -194,7 +233,11 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        format_and_log_full(log_level::error, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
+        format_and_log_full(log_level::error,
+                            module,
+                            fmt.loc,
+                            fmt.fmt.get(),
+                            std::make_format_args(args...));
     }
 
     template <typename... args_t>
@@ -202,7 +245,11 @@ public:
         const char*                                                     module,
         detail::format_string_with_loc<std::type_identity_t<args_t>...> fmt,
         args_t&&... args) -> void {
-        format_and_log_full(log_level::critical, module, fmt.loc, fmt.fmt.get(), std::make_format_args(args...));
+        format_and_log_full(log_level::critical,
+                            module,
+                            fmt.loc,
+                            fmt.fmt.get(),
+                            std::make_format_args(args...));
     }
 };
 

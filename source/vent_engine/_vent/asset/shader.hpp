@@ -1,6 +1,6 @@
 #pragma once
 //
-// asset module.
+// vent public sdk.
 // shader asset structure.
 // ——————————————————————
 //
@@ -11,14 +11,19 @@
 
 namespace vent {
 
+/// @brief represents a loaded shader asset containing compiled bytecode.
 struct shader_asset {
-    std::vector<u32>   spirv_bytecode;
+    std::vector<u32>
+        spirv_bytecode;  ///< 0x00-0x18 (24b): the raw spirv bytecode.
 
     // reflection data can be added here later (e.g. descriptor set layouts).
-    
-    [[nodiscard]] auto is_valid() const -> bool {
+
+    /// @brief check if the shader asset contains valid bytecode.
+    /// @return true if valid, false otherwise.
+    [[nodiscard]]
+    auto is_valid() const -> bool {
         return !spirv_bytecode.empty();
     }
 };
 
-} // namespace vent
+}  // namespace vent

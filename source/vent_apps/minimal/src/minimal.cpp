@@ -8,11 +8,14 @@
 #include <_vent/asset/shader.hpp>
 
 #include <_vent/renderer/ic_pipeline.hpp>
+#include <_vent/math/math.hpp>
 
 #include <memory>
 
 class minimal_client : public vent::client_base {
 public:
+    minimal_client() = default;
+
     // --- ir_dependencies ---
     // —————————————————————————————————————————————————————————————————————————
 
@@ -56,11 +59,22 @@ public:
             _windows.push_back(window);
             vent::log()->info("client",
                               "created window {} of 3: '{}'.",
-                              i + 1,
+                              _windows.size(),
                               window->get_title());
         }
 
-        vent::log()->info("client",
+        // test math library
+        vent::math::mat4 view = vent::math::look_at(
+            vent::math::vec3(0.0f, -10.0f, 0.0f),  // eye (looking from -Y)
+            vent::math::vec3(0.0f, 0.0f, 0.0f),    // center
+            vent::math::vec3(0.0f, 0.0f, 1.0f)     // up (Z-up)
+        );
+        vent::math::mat4 proj = vent::math::perspective(
+            vent::math::radians(45.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
+        vent::log()->trace(
+            "client", "math library test: view and proj matrices generated!");
+
+        vent::log()->trace("client",
                           "multi-window test initialized with {} windows",
                           _windows.size());
 
@@ -69,7 +83,7 @@ public:
         vent::shader_asset* shader =
             vent::asset()->load_shader("app://assets/shaders/shader.slang.spv");
         if (shader) {
-            vent::log()->info("client",
+            vent::log()->trace("client",
                               "successfully loaded shader ({} bytes)!",
                               shader->spirv_bytecode.size() *
                                   sizeof(vent::u32));
@@ -80,7 +94,7 @@ public:
             // matches our slang shader.
             _pipeline = vent::renderer()->create_graphics_pipeline(desc);
             if (_pipeline) {
-                vent::log()->info("client",
+                vent::log()->trace("client",
                                   "successfully created graphics pipeline!");
             } else {
                 vent::log()->error("client",
@@ -90,10 +104,16 @@ public:
             vent::log()->error("client", "failed to load shader!");
         }
 
-        vent::vertex vertices[] = {{{0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-                                   {{0.5f, 0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-                                   {{-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}}};
-        _triangle_mesh          = vent::renderer()->create_mesh(vertices);
+        vent::vertex vertices[] = {
+            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},  // red
+            {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},   // green
+            {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},    // blue
+            {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}}    // white
+        };
+
+        vent::u32 indices[] = {0, 1, 2, 2, 3, 0};
+
+        _triangle_mesh = vent::renderer()->create_mesh(vertices, indices);
 
         _frame_count = 0;
         _elapsed     = 0.0;

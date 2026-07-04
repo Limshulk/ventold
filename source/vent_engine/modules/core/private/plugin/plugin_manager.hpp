@@ -11,7 +11,7 @@
 // thread.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/platform/library.hpp>
+#include <core/utils/library.hpp>
 
 #include <mutex>
 #include <string>
@@ -39,8 +39,8 @@ public:
     /// @param path_prefix directory prefix for the library path (default:
     /// "./").
     /// @return true if loaded successfully or already loaded.
-    auto load(std::string_view name,
-              std::string_view path_prefix = "./") -> bool;
+    auto load(std::string_view name, std::string_view path_prefix = "./")
+        -> bool;
 
     /// @brief unload a plugin library by name.
     /// @param name plugin name.

@@ -6,7 +6,7 @@
 //
 // base class all systems inherit from. defines the lifecycle contract:
 // - name: unique identifier.
-// - on_initialization: called during startup (may be staged).
+// - on_initialization: called during startup.
 // - on_shutdown: called during shutdown.
 //
 // for additional capabilities, systems can implement role interfaces:
@@ -16,14 +16,15 @@
 // - ir_runnable: system has on_update() for main loop.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/system/system_initialization_result.hpp>
+#include <_vent/system/system_initialization_status.hpp>
 
 #include <string_view>
 
 namespace vent {
 
 /// @brief base class for all engine systems.
-/// systems must override name(), on_initialization(), and on_shutdown().
+/// systems must override name() and on_shutdown(). on_initialization() is
+/// optionally overwritten, if needed.
 class system_base {
 public:
     virtual ~system_base() = default;
@@ -33,13 +34,12 @@ public:
     [[nodiscard]]
     virtual auto name() const -> std::string_view = 0;
 
-    /// @brief initialization call. may be called multiple times for staged
-    /// initialization.
-    /// @param stage current initialization stage (0-based).
-    /// @return initialization result indicating next action.
+    /// @brief initialization call.
+    /// @return initialization result indicating success or failure.
     [[nodiscard]]
-    virtual auto on_initialization(i32 stage = 0)
-        -> system_initialization_result = 0;
+    virtual auto on_initialization() -> system_initialization_status {
+        return system_initialization_status::success;
+    }
 
     /// @brief shutdown call. clean up resources.
     virtual auto on_shutdown() -> void = 0;

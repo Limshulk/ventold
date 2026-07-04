@@ -9,7 +9,7 @@
 #include <_vent/vent_sdk.hpp>
 #include <_vent/system/system_base.hpp>
 
-#include <_vent/core/ic_event_bus.hpp>
+#include <_vent/event_bus/ic_event_bus.hpp>
 #include <core/system/interface_map.hpp>
 
 #include <memory>

@@ -1,19 +1,19 @@
 #pragma once
 //
-// vent public sdk.
-// system initialization result.
+// core module.
+// system init command.
 // ——————————————————————
 //
-// return type for system initialization. indicates what the system registry
-// should do next (proceed, wait, complete, or fail).
+// return type for internal staged system initialization. indicates what the
+// system registry should do next (proceed, wait, complete, or fail).
 
 #include <string>
 #include <vector>
 
 namespace vent {
 
-/// @brief result from a system initialization step.
-struct system_initialization_result {
+/// @brief command from a staged system initialization step.
+struct system_init_command {
 
     /// @brief possible actions after initialization step.
     enum class action {
@@ -30,28 +30,28 @@ struct system_initialization_result {
     // —————————————————————————————————————————————————————————————————————————
 
     /// @brief proceed to next initialization step.
-    static auto proceed() -> system_initialization_result {
+    static auto proceed() -> system_init_command {
         return {.state = action::proceed};
     }
 
     /// @brief wait for one event before proceeding.
-    static auto await_event(std::string event) -> system_initialization_result {
+    static auto await_event(std::string event) -> system_init_command {
         return {.state = action::await_event, .events = {std::move(event)}};
     }
 
     /// @brief wait for multiple events before proceeding.
     static auto await_events(std::vector<std::string> events)
-        -> system_initialization_result {
+        -> system_init_command {
         return {.state = action::await_event, .events = std::move(events)};
     }
 
     /// @brief complete initialization.
-    static auto complete() -> system_initialization_result {
+    static auto complete() -> system_init_command {
         return {.state = action::complete};
     }
 
     /// @brief indicate initialization failure.
-    static auto failed() -> system_initialization_result {
+    static auto failed() -> system_init_command {
         return {.state = action::failed};
     }
 };

@@ -93,8 +93,9 @@ public:
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
 
-    virtual auto create_mesh(std::span<const vertex> vertices)
-        -> mesh_handle = 0;
+    virtual auto create_mesh(
+        std::span<const vertex>   vertices,
+        std::span<const uint32_t> indices = {}) -> mesh_handle = 0;
 
     // --- rendering execution ---
     // —————————————————————————————————————————————————————————————————————————

@@ -9,13 +9,12 @@
 // publish() dispatches callbacks to the job system for parallel execution. while
 // execution, each subscriber sees a snapshot of the latests subscriber list.
 
-#include <core/interfaces/i_event_bus.hpp>
+#include <event_bus/interfaces/i_event_bus.hpp>
 #include <core/interfaces/ir_bootstrap.hpp>
 
 #include <_vent/system/system_base.hpp>
 
 #include <atomic>
-#include <mutex>
 #include <shared_mutex>
 
 namespace vent {
@@ -41,10 +40,14 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0)
-        -> system_initialization_result override {
-        return initialize() ? system_initialization_result::complete()
-                            : system_initialization_result::failed();
+    auto bootstrap_priority() const -> i32 override {
+        return 0;  // very high priority.
+    }
+
+    [[nodiscard]]
+    auto on_initialization() -> system_initialization_status override {
+        return initialize() ? system_initialization_status::success
+                            : system_initialization_status::failed;
     }
 
     auto on_shutdown() -> void override { shutdown(); }

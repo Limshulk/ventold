@@ -17,11 +17,12 @@
 //     each system. can take arbitrary time depending on what the system does.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/system/system_initialization_result.hpp>
+#include <_vent/client_registration.hpp>
+#include <_vent/event_bus/ic_event_bus.hpp>
 #include <_vent/job/ic_job.hpp>
-#include <_vent/core/ic_event_bus.hpp>
 
-#include <atomic>
+#include <core/system/system_init_command.hpp>
+
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -84,9 +85,6 @@ struct init_context {
 
 // --- system_creator class ---
 // —————————————————————————————————————————————————————————————————————————————
-
-/// @brief client factory function type.
-using client_factory_fn = std::function<std::unique_ptr<client_base>()>;
 
 /// @brief owns pending system registrations and provides creation
 /// functionality.
@@ -217,7 +215,7 @@ public:
     /// @param name system name to initialize.
     /// @return action indicating outcome (complete, await_event, failed).
     auto initialize_one(system_registry& registry, const std::string& name)
-        -> system_initialization_result::action;
+        -> system_init_command::action;
 
     // --- dependency event management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -252,12 +250,6 @@ public:
 /// delegates to the global system_creator instance.
 /// @param entry pending entry containing factory and interface mapper.
 VENT_API auto register_pending_system(pending_entry&& entry) -> void;
-
-/// @brief register a client factory.
-/// called by VENT_CLIENT macro during static initialization.
-/// delegates to the global system_creator instance.
-/// @param factory function that creates the client instance.
-VENT_API auto register_client_factory(client_factory_fn factory) -> void;
 
 /// @brief get the global system_creator instance.
 /// @return reference to the global system_creator.

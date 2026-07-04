@@ -15,6 +15,17 @@
 
 namespace vent {
 
+// --- window_close_policy ---
+// —————————————————————————————————————————————————————————————————————————————
+
+/// @brief policy used when the main window receives a close request.
+enum class window_close_policy {
+    exit_on_main_close = 0,  ///< closing main window exits the app.
+    keep_running_until_all_closed =
+        1,  ///< main window close request is ignored until all windows are
+            ///< closed.
+};
+
 // --- window_style ---
 // —————————————————————————————————————————————————————————————————————————————
 

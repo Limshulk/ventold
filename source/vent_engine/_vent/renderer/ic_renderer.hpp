@@ -24,12 +24,9 @@ struct pipeline_desc;
 
 class ic_renderer {
 public:
+    virtual ~ic_renderer() = default;
+
     static constexpr std::string_view system_name = "vent.system.renderer";
-
-protected:
-    ~ic_renderer() = default;
-
-public:
     // --- configuration ---
     // —————————————————————————————————————————————————————————————————————————
 
@@ -69,8 +66,10 @@ public:
 
     /// @brief create a mesh from a list of vertices.
     /// @param vertices the raw vertex data.
+    /// @param indices the raw index data.
     /// @return an opaque handle to the mesh.
-    virtual auto create_mesh(std::span<const vertex> vertices)
+    virtual auto create_mesh(std::span<const vertex>   vertices,
+                             std::span<const uint32_t> indices = {})
         -> mesh_handle = 0;
 
     // --- rendering submission ---
@@ -82,7 +81,8 @@ public:
 
     /// @brief submit all recorded command lists to the renderer.
     /// usually called once per frame by the main thread.
-    virtual auto submit_command_lists(std::span<command_list* const> lists) -> void = 0;
+    virtual auto submit_command_lists(std::span<command_list* const> lists)
+        -> void = 0;
 };
 
 }  // namespace vent

@@ -1,6 +1,6 @@
 #pragma once
 //
-// vent engine
+// vent public sdk
 // render command definitions.
 // ——————————————————————
 //
@@ -24,10 +24,11 @@ namespace vent {
 // [ 24 bits: distance to camera ]
 using sort_key = u64;
 
-// encapsulates all data needed for a single draw call.
+/// @brief encapsulates all data needed for a single draw call.
 struct render_packet {
-    sort_key    key;
-    mesh_handle mesh;
+    sort_key
+        key;  ///< 0x00-0x08 (8b): 64-bit sort key for depth/pipeline sorting.
+    mesh_handle mesh;  ///< 0x08-0x10 (8b): opaque handle to the mesh to draw.
     // ... future: pipeline_handle, material_handle, transform_index, etc.
 };
 

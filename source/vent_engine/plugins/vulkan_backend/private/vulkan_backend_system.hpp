@@ -44,10 +44,9 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0)
-        -> system_initialization_result override {
-        return initialize() ? system_initialization_result::complete()
-                            : system_initialization_result::failed();
+    auto on_initialization() -> system_initialization_status override {
+        return initialize() ? system_initialization_status::success
+                            : system_initialization_status::failed;
     }
 
     auto on_shutdown() -> void override { shutdown(); }
@@ -91,8 +90,9 @@ private:
 
     vulkan_swapchain* _active_swapchain =
         nullptr;  ///< the swapchain currently rendering a frame.
-    ic_window* _active_window = nullptr;  ///< the window currently rendering a frame.
-    
+    ic_window* _active_window =
+        nullptr;  ///< the window currently rendering a frame.
+
     class vulkan_pipeline* _active_pipeline = nullptr;
 
     // --- mesh management ---
@@ -102,6 +102,10 @@ private:
         VkBuffer      buffer       = VK_NULL_HANDLE;
         VmaAllocation allocation   = VK_NULL_HANDLE;
         u32           vertex_count = 0;
+
+        VkBuffer      index_buffer     = VK_NULL_HANDLE;
+        VmaAllocation index_allocation = VK_NULL_HANDLE;
+        u32           index_count      = 0;
     };
 
     std::unordered_map<mesh_handle, vulkan_mesh_data> _meshes;
@@ -123,21 +127,24 @@ public:
     /// @param window the window to create a surface for.
     /// @return true if successful, false otherwise.
     auto create_surface(ic_window* window) -> bool override;
-    
-    /// @brief destroys the vulkan surface and swapchain associated with the window.
+
+    /// @brief destroys the vulkan surface and swapchain associated with the
+    /// window.
     /// @param window the window whose surface should be destroyed.
     auto destroy_surface(ic_window* window) -> void override;
 
-    /// @brief sets the maximum number of frames in flight for a window's swapchain.
+    /// @brief sets the maximum number of frames in flight for a window's
+    /// swapchain.
     /// @param window the window to modify.
     /// @param count the new frame count (e.g. 2 for double buffering).
     auto set_frames_in_flight(ic_window* window, u32 count) -> void override;
-    
+
     /// @brief begins a new frame for the given window.
     /// @param window the window to begin rendering for.
-    /// @return true if the frame successfully began, false if skipped (e.g. minimized).
+    /// @return true if the frame successfully began, false if skipped (e.g.
+    /// minimized).
     auto begin_frame(ic_window* window) -> bool override;
-    
+
     /// @brief ends the frame for the given window and presents it to the screen.
     /// @param window the window to end rendering for.
     auto end_frame(ic_window* window) -> void override;
@@ -156,8 +163,11 @@ public:
 
     /// @brief creates a gpu mesh buffer from host vertex data.
     /// @param vertices the list of vertices to upload.
+    /// @param indices an optional list of indices for indexed drawing.
     /// @return a handle to the uploaded mesh.
-    auto create_mesh(std::span<const vertex> vertices) -> mesh_handle override;
+    auto create_mesh(std::span<const vertex>   vertices,
+                     std::span<const uint32_t> indices = {})
+        -> mesh_handle override;
 
     // --- rendering execution ---
     // —————————————————————————————————————————————————————————————————————————
@@ -182,14 +192,15 @@ private:
     /// @brief acquires a thread-local command context for background rendering.
     /// @return a unique context containing a command pool and buffers.
     auto get_thread_context() -> thread_command_context;
-    
+
     /// @brief returns a thread-local command context back to the pending queue.
     /// @param ctx the context to return.
     /// @param window the window this context was used for.
     /// @param frame_index the frame index this context was used for.
-    auto return_thread_context(thread_command_context&& ctx, ic_window* window, u32 frame_index)
-        -> void;
-        
+    auto return_thread_context(thread_command_context&& ctx,
+                               ic_window*               window,
+                               u32                      frame_index) -> void;
+
     /// @brief resets all pending contexts for a specific window and frame index.
     /// @param window the window whose contexts should be reset.
     /// @param frame_index the frame index whose contexts should be reset.

@@ -143,7 +143,13 @@ auto vulkan_backend_system::shutdown() -> void {
     {
         std::lock_guard mesh_lock(_mesh_mutex);
         for (auto& [handle, data] : _meshes) {
-            vmaDestroyBuffer(_allocator, data.buffer, data.allocation);
+            if (data.index_buffer) {
+                vmaDestroyBuffer(
+                    _allocator, data.index_buffer, data.index_allocation);
+            }
+            if (data.buffer) {
+                vmaDestroyBuffer(_allocator, data.buffer, data.allocation);
+            }
         }
         _meshes.clear();
     }
@@ -642,7 +648,7 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
         return false;
     }
 
-    log()->trace("vulkan",
+    log()->info("vulkan",
                  "surface created for window '{}' (present queue family: {}).",
                  window->get_title(),
                  surface_present_family);
@@ -665,7 +671,7 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
                              false});
     }
 
-    log()->trace(
+    log()->info(
         "vulkan", "swapchain created for window '{}'.", window->get_title());
 
     return true;
@@ -675,11 +681,13 @@ auto vulkan_backend_system::destroy_surface(ic_window* window) -> void {
     if (!window) {
         return;
     }
+    log()->trace("vulkan", "marking surface for destruction for window '{}'", (void*)window);
 
-    // rather than destroying the surface immediately, we mark it for destruction.
-    // this avoids race conditions where the render thread is actively recording
-    // command buffers for this swapchain while the main thread destroys the window.
-    // it will be safely destroyed at the beginning of the next frame.
+    // rather than destroying the surface immediately, we mark it for
+    // destruction. this avoids race conditions where the render thread is
+    // actively recording command buffers for this swapchain while the main
+    // thread destroys the window. it will be safely destroyed at the beginning
+    // of the next frame.
     std::unique_lock lock(_mutex);
     for (auto& s : _surfaces) {
         if (s.window == window) {
@@ -712,7 +720,7 @@ auto vulkan_backend_system::begin_frame(ic_window* window) -> bool {
     for (auto it = _surfaces.begin(); it != _surfaces.end();) {
         if (it->marked_for_destruction) {
             it->swapchain->wait_for_fences();
-            log()->trace("vulkan",
+            log()->info("vulkan",
                          "destroying surface for window handle '{}'.",
                          (void*) it->window);
             it = _surfaces.erase(it);
@@ -730,12 +738,13 @@ auto vulkan_backend_system::begin_frame(ic_window* window) -> bool {
             if (success) {
                 _active_swapchain = s.swapchain.get();
                 _active_window    = s.window;
-                
-                // since begin_frame() just returned true, it means it successfully
-                // waited for the fence of this current frame index.
-                // this guarantees the gpu is 100% finished with it, so we can
-                // safely reset all our thread-local command pools that were
-                // used the last time this frame index was rendered for this window!
+
+                // since begin_frame() just returned true, it means it
+                // successfully waited for the fence of this current frame
+                // index. this guarantees the gpu is 100% finished with it, so
+                // we can safely reset all our thread-local command pools that
+                // were used the last time this frame index was rendered for
+                // this window!
                 reset_thread_contexts(s.window,
                                       s.swapchain->get_current_frame_index());
             }
@@ -760,9 +769,9 @@ auto vulkan_backend_system::end_frame(ic_window* window) -> void {
 
 auto vulkan_backend_system::create_graphics_pipeline(const pipeline_desc& desc)
     -> std::unique_ptr<i_pipeline> {
-    
-    // a graphics pipeline in vulkan requires knowing the format of the render target
-    // ahead of time. if we don't have any surfaces, we can't create one.
+
+    // a graphics pipeline in vulkan requires knowing the format of the render
+    // target ahead of time. if we don't have any surfaces, we can't create one.
     if (_surfaces.empty()) {
         log()->error("vulkan",
                      "cannot create pipeline: no surfaces exist to determine "
@@ -784,7 +793,7 @@ auto vulkan_backend_system::bind_pipeline(ic_pipeline* pipeline) -> void {
     if (!pipeline) {
         log()->warn("vulkan", "bind_pipeline called with null pipeline.");
     }
-    
+
     // just store the active pipeline. it will be physically bound to the command
     // buffer when the background threads record the draw commands later.
     _active_pipeline = static_cast<vulkan_pipeline*>(pipeline);
@@ -792,7 +801,7 @@ auto vulkan_backend_system::bind_pipeline(ic_pipeline* pipeline) -> void {
 
 auto vulkan_backend_system::get_thread_context() -> thread_command_context {
     std::lock_guard lock(_context_mutex);
-    
+
     // check if we have any idle contexts sitting in the pool.
     // this avoids expensive vulkan object creation during rendering.
     if (!_available_contexts.empty()) {
@@ -820,18 +829,18 @@ auto vulkan_backend_system::return_thread_context(thread_command_context&& ctx,
                                                   ic_window* window,
                                                   u32 frame_index) -> void {
     std::lock_guard lock(_context_mutex);
-    // when a worker thread finishes its chunk of rendering, it gives its context
-    // back to the backend. we store it in a 'pending' list tied directly to this
-    // specific window and its specific frame in flight.
-    // we cannot put it directly back into _available_contexts because the gpu
-    // is currently executing the commands inside this pool!
+    // when a worker thread finishes its chunk of rendering, it gives its
+    // context back to the backend. we store it in a 'pending' list tied
+    // directly to this specific window and its specific frame in flight. we
+    // cannot put it directly back into _available_contexts because the gpu is
+    // currently executing the commands inside this pool!
     _pending_contexts[frame_index][window].push_back(std::move(ctx));
 }
 
 auto vulkan_backend_system::reset_thread_contexts(ic_window* window,
                                                   u32 frame_index) -> void {
     std::lock_guard lock(_context_mutex);
-    
+
     // this function is called only when we have successfully acquired an image
     // from a swapchain and successfully waited for its fence.
     // at this exact moment, we guarantee the gpu has finished executing all
@@ -845,7 +854,7 @@ auto vulkan_backend_system::reset_thread_contexts(ic_window* window,
             0);
         _available_contexts.push_back(std::move(ctx));
     }
-    
+
     // clear just the contexts for this specific window.
     // we do not clear the whole map, because other windows might still have
     // pending command buffers running on the gpu for this frame index.
@@ -863,9 +872,9 @@ auto vulkan_backend_system::execute_packets(
     ic_window* current_window = _active_window;
 
     // chunk packets.
-    // we divide the massive list of draw commands into smaller manageable chunks.
-    // a chunk size of 256 is a reasonable default for keeping thread overhead low
-    // while maximizing parallelism.
+    // we divide the massive list of draw commands into smaller manageable
+    // chunks. a chunk size of 256 is a reasonable default for keeping thread
+    // overhead low while maximizing parallelism.
     const usize chunk_size = 256;
     const usize num_chunks = (packets.size() + chunk_size - 1) / chunk_size;
 
@@ -888,7 +897,7 @@ auto vulkan_backend_system::execute_packets(
             auto ctx = get_thread_context();
 
             vk::raii::CommandBuffer* cmd = nullptr;
-            
+
             // grab a command buffer from our context, or allocate a new one
             // if this context doesn't have enough pre-allocated yet.
             if (ctx.used_buffers < ctx.buffers.size()) {
@@ -907,9 +916,10 @@ auto vulkan_backend_system::execute_packets(
             }
 
             // setup dynamic rendering inheritance.
-            // secondary command buffers inside dynamic rendering require explicit
-            // inheritance info to know what formats they are rendering into,
-            // since they don't have access to the overarching render pass.
+            // secondary command buffers inside dynamic rendering require
+            // explicit inheritance info to know what formats they are rendering
+            // into, since they don't have access to the overarching render
+            // pass.
             vk::Format format = _active_swapchain->get_image_format();
             vk::CommandBufferInheritanceRenderingInfo inheritance_rendering {
                 .colorAttachmentCount    = 1,
@@ -959,7 +969,14 @@ auto vulkan_backend_system::execute_packets(
                 if (data.buffer) {
                     vk::DeviceSize offset = 0;
                     cmd->bindVertexBuffers(0, {data.buffer}, {offset});
-                    cmd->draw(data.vertex_count, 1, 0, 0);
+
+                    if (data.index_buffer) {
+                        cmd->bindIndexBuffer(
+                            data.index_buffer, 0, vk::IndexType::eUint32);
+                        cmd->drawIndexed(data.index_count, 1, 0, 0, 0);
+                    } else {
+                        cmd->draw(data.vertex_count, 1, 0, 0);
+                    }
                 }
             }
 
@@ -985,12 +1002,16 @@ auto vulkan_backend_system::execute_packets(
     }
 }
 
-auto vulkan_backend_system::create_mesh(std::span<const vertex> vertices)
+auto vulkan_backend_system::create_mesh(std::span<const vertex>   vertices,
+                                        std::span<const uint32_t> indices)
     -> mesh_handle {
+    log()->trace("vulkan", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
     if (vertices.empty())
         return INVALID_MESH_HANDLE;
 
-    size_t buffer_size = sizeof(vertex) * vertices.size();
+    size_t vertex_size = sizeof(vertex) * vertices.size();
+    size_t index_size  = sizeof(uint32_t) * indices.size();
+    size_t buffer_size = vertex_size + index_size;
 
     // vulkan requires creating two buffers to upload data to the gpu optimally.
     // 1. a "staging" buffer that is visible to the cpu so we can write to it.
@@ -1024,12 +1045,18 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex> vertices)
     }
 
     // copy data to staging buffer.
-    std::memcpy(staging_alloc_result.pMappedData, vertices.data(), buffer_size);
+    std::memcpy(staging_alloc_result.pMappedData, vertices.data(), vertex_size);
+    if (index_size > 0) {
+        std::memcpy(static_cast<char*>(staging_alloc_result.pMappedData) +
+                        vertex_size,
+                    indices.data(),
+                    index_size);
+    }
 
     // create gpu-local vertex buffer.
     VkBufferCreateInfo vertex_buffer_info = {};
     vertex_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    vertex_buffer_info.size  = buffer_size;
+    vertex_buffer_info.size  = vertex_size;
     vertex_buffer_info.usage =
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     vertex_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1039,6 +1066,8 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex> vertices)
 
     vulkan_mesh_data mesh_data;
     mesh_data.vertex_count = static_cast<u32>(vertices.size());
+    mesh_data.index_count  = static_cast<u32>(indices.size());
+
     if (vmaCreateBuffer(_allocator,
                         &vertex_buffer_info,
                         &vertex_alloc_info,
@@ -1050,7 +1079,31 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex> vertices)
         return INVALID_MESH_HANDLE;
     }
 
-    // copy staging to vertex buffer using a transient command buffer.
+    // create gpu-local index buffer if indices exist.
+    if (index_size > 0) {
+        VkBufferCreateInfo index_buffer_info = {};
+        index_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        index_buffer_info.size  = index_size;
+        index_buffer_info.usage =
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        index_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vmaCreateBuffer(
+                _allocator,
+                &index_buffer_info,
+                &vertex_alloc_info,  // same alloc info as vertex buffer
+                &mesh_data.index_buffer,
+                &mesh_data.index_allocation,
+                nullptr) != VK_SUCCESS) {
+            log()->error("vulkan", "failed to create index buffer.");
+            vmaDestroyBuffer(
+                _allocator, mesh_data.buffer, mesh_data.allocation);
+            vmaDestroyBuffer(_allocator, staging_buffer, staging_allocation);
+            return INVALID_MESH_HANDLE;
+        }
+    }
+
+    // copy staging to vertex (and index) buffer using a transient command buffer.
     {
         std::lock_guard lock(_mesh_mutex);  // protect queue submission and
                                             // command pool allocation.
@@ -1069,12 +1122,22 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex> vertices)
         };
         cmd.begin(begin_info);
 
-        vk::BufferCopy copy_region {
+        vk::BufferCopy vertex_copy_region {
             .srcOffset = 0,
             .dstOffset = 0,
-            .size      = buffer_size,
+            .size      = vertex_size,
         };
-        cmd.copyBuffer(staging_buffer, mesh_data.buffer, copy_region);
+        cmd.copyBuffer(staging_buffer, mesh_data.buffer, vertex_copy_region);
+
+        if (index_size > 0) {
+            vk::BufferCopy index_copy_region {
+                .srcOffset = vertex_size,
+                .dstOffset = 0,
+                .size      = index_size,
+            };
+            cmd.copyBuffer(
+                staging_buffer, mesh_data.index_buffer, index_copy_region);
+        }
 
         cmd.end();
 

@@ -9,7 +9,6 @@
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/platform/ic_window.hpp>
-#include <_vent/core/ir_client.hpp>  // TODO: needed for window_close_policy. check if we can move the definition somewhere else.
 
 #include <vector>
 
@@ -27,9 +26,9 @@ enum class platform_type {
 
 class ic_platform {
 public:
-    static constexpr std::string_view system_name = "vent.system.platform";
-
     virtual ~ic_platform() = default;
+
+    static constexpr std::string_view system_name = "vent.system.platform";
 
     // --- platform os backend ---
     // —————————————————————————————————————————————————————————————————————————

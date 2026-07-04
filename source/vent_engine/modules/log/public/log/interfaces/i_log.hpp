@@ -6,7 +6,7 @@
 //
 // extends ic_log with engine-internals.
 
-#include <_vent/core/ic_log.hpp>
+#include <_vent/log/ic_log.hpp>
 
 namespace vent {
 

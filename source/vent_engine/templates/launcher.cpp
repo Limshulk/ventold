@@ -7,7 +7,18 @@
 // configuration from the generated build info header.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/platform/library.hpp>
+
+#ifdef _WIN32
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#else
+    #include <dlfcn.h>
+#endif
 
 #include <print>
 #include <string>
@@ -29,6 +40,23 @@
 
 namespace {
 
+#ifdef _WIN32
+constexpr const char* SHARED_LIB_PREFIX = "lib";
+constexpr const char* SHARED_LIB_SUFFIX = ".dll";
+using lib_handle                        = HMODULE;
+constexpr lib_handle INVALID_LIB_HANDLE = nullptr;
+#elif defined(__linux__)
+constexpr const char* SHARED_LIB_PREFIX = "lib";
+constexpr const char* SHARED_LIB_SUFFIX = ".so";
+using lib_handle                        = void*;
+constexpr lib_handle INVALID_LIB_HANDLE = nullptr;
+#elif defined(__APPLE__)
+constexpr const char* SHARED_LIB_PREFIX = "lib";
+constexpr const char* SHARED_LIB_SUFFIX = ".dylib";
+using lib_handle                        = void*;
+constexpr lib_handle INVALID_LIB_HANDLE = nullptr;
+#endif
+
 /// @brief base name of the engine shared library without prefix or suffix.
 /// @note usually, the library is called `libvent_engine.<EXT>`.
 constexpr const char* ENGINE_LIB_BASE = "vent_engine";
@@ -36,33 +64,60 @@ constexpr const char* ENGINE_LIB_BASE = "vent_engine";
 /// @brief name of the engine main entry function.
 constexpr const char* ENGINE_MAIN_ENTRY = "vent_engine_entry";
 
+inline auto load_lib(const char* path) -> lib_handle {
+#ifdef _WIN32
+    return LoadLibraryA(path);
+#else
+    return dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+#endif
+}
+
+inline auto unload_lib(lib_handle handle) -> void {
+    if (handle == INVALID_LIB_HANDLE)
+        return;
+#ifdef _WIN32
+    FreeLibrary(handle);
+#else
+    dlclose(handle);
+#endif
+}
+
+template <typename T>
+inline auto get_lib_symbol(lib_handle handle, const char* name) -> T {
+    if (handle == INVALID_LIB_HANDLE || name == nullptr)
+        return nullptr;
+#ifdef _WIN32
+    return reinterpret_cast<T>(GetProcAddress(handle, name));
+#else
+    return reinterpret_cast<T>(dlsym(handle, name));
+#endif
+}
+
 }  // namespace
 
 // --- main entry point ---
 // —————————————————————————————————————————————————————————————————————————————
 
 auto main(int argc, char** argv) -> int {
-    std::string engine_path =
-        "./" + vent::lib::make_shared_library_name(ENGINE_LIB_BASE);
+    std::string engine_path = std::string("./") + SHARED_LIB_PREFIX +
+                              ENGINE_LIB_BASE + SHARED_LIB_SUFFIX;
 
     std::print("[launcher] loading engine library: {}\n", engine_path);
 
     // load engine library.
-    auto engine_handle = vent::lib::load_library(engine_path.c_str());
-    if (engine_handle == vent::lib::INVALID_LIBRARY_HANDLE) {
-        std::print("[launcher] error: failed to load engine library: {}\n",
-                   vent::lib::get_last_error());
+    auto engine_handle = load_lib(engine_path.c_str());
+    if (engine_handle == INVALID_LIB_HANDLE) {
+        std::print("[launcher] error: failed to load engine library\n");
         return 1;
     }
 
     // find engine main function.
-    auto engine_main =
-        vent::lib::get_library_symbol_as<vent::vent_engine_entry_fn>(
-            engine_handle, ENGINE_MAIN_ENTRY);
+    auto engine_main = get_lib_symbol<vent::vent_engine_entry_fn>(
+        engine_handle, ENGINE_MAIN_ENTRY);
     if (engine_main == nullptr) {
         std::print("[launcher] error: main entry point `{}` not found.\n",
                    ENGINE_MAIN_ENTRY);
-        vent::lib::unload_library(engine_handle);
+        unload_lib(engine_handle);
         return 1;
     }
 
@@ -83,11 +138,11 @@ auto main(int argc, char** argv) -> int {
     int result = engine_main(config);
 
     // clean up and exit.
-    std::printf(
+    std::print(
         "\n[launcher] vent engine has exited. unloading engine library...\n");
-    vent::lib::unload_library(engine_handle);
+    unload_lib(engine_handle);
 
-    std::printf("[launcher] exiting with: %d\n", result);
+    std::print("[launcher] exiting with: {}\n", result);
 
     return result;
 }

@@ -16,6 +16,7 @@ vulkan_pipeline::vulkan_pipeline(const vk::raii::Device& device,
                                  const pipeline_desc&    desc,
                                  vk::Format              swapchain_image_format,
                                  vk::Extent2D            swapchain_extent) {
+    log()->trace("vulkan", "creating graphics pipeline");
 
     // --- shader modules ---
     // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/02_Graphics_pipeline_basics/01_Shader_modules.html
@@ -161,6 +162,8 @@ vulkan_pipeline::vulkan_pipeline(const vk::raii::Device& device,
         log()->error(
             "vulkan", "failed to create graphics pipeline: {}", err.what());
     }
+
+    log()->trace("vulkan", "graphics pipeline created successfully.");
 }
 
 auto vulkan_pipeline::create_shader_module(const vk::raii::Device& device,

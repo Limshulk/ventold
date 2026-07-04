@@ -11,6 +11,8 @@
 
 #include <_vent/accessors.hpp>
 
+#include <mutex>
+
 namespace vent {
 
 // --- lifecycle ---
@@ -55,6 +57,7 @@ auto event_bus_system::subscribe(std::string_view event,
     auto id = _next_subscription_id.fetch_add(1, std::memory_order_relaxed);
 
     std::string event_str(event);
+    log()->trace("event_bus", "subscribing to event: '{}'", event_str);
 
     _subscriptions[event_str].push_back(
         subscription {.id       = id,
@@ -64,6 +67,7 @@ auto event_bus_system::subscribe(std::string_view event,
 
     _subscription_index[id] = event_str;
 
+    log()->trace("event_bus", "subscribed to event '{}' with id {}", event_str, id);
     return id;
 }
 
@@ -73,10 +77,14 @@ auto event_bus_system::unsubscribe(subscription_id id) -> void {
 
     std::unique_lock lock(_mutex);
 
+    log()->trace("event_bus", "unsubscribing id {}", id);
+
     // find event to this subscription id.
     auto it = _subscription_index.find(id);
-    if (it == _subscription_index.end())
+    if (it == _subscription_index.end()) {
+        log()->debug("event_bus", "unsubscribe failed: id {} not found.", id);
         return;
+    }
 
     // remove subscription from the global map.
     auto& all_subs = _subscriptions[it->second];
@@ -84,6 +92,7 @@ auto event_bus_system::unsubscribe(subscription_id id) -> void {
         return sub.id == id;
     });
 
+    log()->trace("event_bus", "unsubscribed id {} from event '{}'", id, it->second);
     _subscription_index.erase(it);
 }
 
@@ -109,13 +118,15 @@ auto event_bus_system::dispatch(std::string_view      event,
     std::vector<event_callback> callbacks;
     std::string                 event_str(event);
 
+    log()->trace("event_bus", "dispatching event '{}' (payload: {})", event_str, data);
+
     // take a snapshot of all current subscribers.
     {
         std::shared_lock lock(_mutex);
 
         auto it = _subscriptions.find(event_str);
         if (it == _subscriptions.end()) {
-            log()->trace("event_bus", "no subscribers for event {}", event_str);
+            log()->debug("event_bus", "no subscribers for event '{}'", event_str);
             return;
         }
 
@@ -140,6 +151,7 @@ auto event_bus_system::dispatch(std::string_view      event,
     // fire all callbacks in parallel via job system (if available).
     // lifetime_holder is captured to keep the data alive until all callbacks
     // complete.
+    log()->trace("event_bus", "dispatching event '{}' to {} subscribers.", event_str, callbacks.size());
     for (const auto& callback : callbacks) {
         job()->fire([callback, event_str, data, lifetime_holder]() {
             callback(event_str, data);
@@ -152,13 +164,15 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
     std::vector<event_callback> callbacks;
     std::string                 event_str(event);
 
+    log()->trace("event_bus", "dispatch_wait event '{}' (payload: {})", event_str, data);
+
     // take a snapshot of all current subscribers.
     {
         std::shared_lock lock(_mutex);
 
         auto it = _subscriptions.find(event_str);
         if (it == _subscriptions.end()) {
-            log()->trace("event_bus", "no subscribers for event {}", event_str);
+            log()->debug("event_bus", "no subscribers for event '{}'", event_str);
             return;
         }
 
@@ -182,6 +196,7 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
 
     // fire all callbacks and wait for them to complete.
     // parallel dispatch via job system with wait.
+    log()->trace("event_bus", "dispatch_wait: firing {} callbacks for event '{}'", callbacks.size(), event_str);
     std::vector<task> tasks;
     tasks.reserve(callbacks.size());
 
@@ -191,6 +206,7 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
         }));
     }
 
+    log()->trace("event_bus", "dispatch_wait: waiting for {} tasks to complete...", tasks.size());
     // wait for all tasks to complete.
     for (auto& t : tasks) {
         t.wait();

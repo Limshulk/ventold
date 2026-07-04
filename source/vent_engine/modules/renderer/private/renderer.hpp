@@ -44,13 +44,9 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0)
-        -> system_initialization_result override {
-        log()->trace(
-            "renderer", "renderer_system::on_initialization(stage={})", stage);
-        if (stage == 0)
-            return initialize();
-        return system_initialization_result::failed();
+    auto on_initialization() -> system_initialization_status override {
+        return initialize() ? system_initialization_status::success
+                            : system_initialization_status::failed;
     }
 
     auto on_shutdown() -> void override { shutdown(); }
@@ -73,10 +69,13 @@ public:
 
     auto bind_pipeline(ic_pipeline* pipeline) -> void override;
 
-    auto create_mesh(std::span<const vertex> vertices) -> mesh_handle override;
+    auto create_mesh(std::span<const vertex>   vertices,
+                     std::span<const uint32_t> indices = {})
+        -> mesh_handle override;
 
     auto get_command_list() -> command_list& override;
-    auto submit_command_lists(std::span<command_list* const> lists) -> void override;
+    auto submit_command_lists(std::span<command_list* const> lists)
+        -> void override;
 
 private:
     // --- targets ---
@@ -99,7 +98,7 @@ private:
 
     /// @brief initialize the renderer.
     [[nodiscard]]
-    auto initialize() -> system_initialization_result;
+    auto initialize() -> bool;
 
     /// @brief shutdown renderer system.
     auto shutdown() -> void;

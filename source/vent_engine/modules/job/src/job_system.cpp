@@ -258,6 +258,9 @@ auto job_system::release_state(task_state* state) -> void {
 }
 
 auto job_system::drain() -> void {
+    log()->trace("job_system",
+                 "drain() called. pending jobs: {}",
+                 _pending_count.load());
     while (_pending_count.load(std::memory_order_relaxed) > 0) {
         help_with_work_external();
     }
@@ -286,7 +289,7 @@ auto job_system::parallel_for(u64         begin,
     job_funcs.reserve(num_chunks);
 
     for (u64 i = begin; i < end; i += chunk_size) {
-        u64 chunk_end = (std::min)(i + chunk_size, end);
+        u64 chunk_end = (std::min) (i + chunk_size, end);
         job_funcs.push_back([func, i, chunk_end]() {
             for (u64 j = i; j < chunk_end; ++j) {
                 func(j);

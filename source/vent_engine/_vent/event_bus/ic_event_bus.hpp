@@ -51,9 +51,9 @@ constexpr subscription_id INVALID_SUBSCRIPTION = 0;
 /// provides publish/subscribe functionality for decoupled communication.
 class ic_event_bus {
 public:
-    static constexpr std::string_view system_name = "vent.system.event_bus";
-
     virtual ~ic_event_bus() = default;
+
+    static constexpr std::string_view system_name = "vent.system.event_bus";
 
     // --- subscription management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -66,8 +66,8 @@ public:
     /// @return subscription id for later unsubscribe, or INVALID_SUBSCRIPTION
     /// on failure.
     [[nodiscard]]
-    virtual auto subscribe(std::string_view event,
-                           event_callback   callback) -> subscription_id = 0;
+    virtual auto subscribe(std::string_view event, event_callback callback)
+        -> subscription_id = 0;
 
     /// @brief unsubscribe from an event. the callback will no longer be invoked
     ///        for this event.
@@ -83,8 +83,8 @@ public:
     /// @param data opaque pointer to event-specific data (can be nullptr).
     /// @warning caller must ensure data outlives all callback invocations.
     ///          for stack-allocated data, use the template overload instead.
-    virtual auto publish(std::string_view event,
-                         void*            data = nullptr) -> void = 0;
+    virtual auto publish(std::string_view event, void* data = nullptr)
+        -> void = 0;
 
     /// @brief publish an event asynchronously with automatic data copying.
     /// creates a heap copy of data that is automatically freed when all
@@ -106,8 +106,8 @@ public:
     /// safe for stack-allocated data since we wait for completion.
     /// @param event event name to publish.
     /// @param data opaque pointer to event-specific data (can be nullptr).
-    virtual auto publish_wait(std::string_view event,
-                              void*            data = nullptr) -> void = 0;
+    virtual auto publish_wait(std::string_view event, void* data = nullptr)
+        -> void = 0;
 
 protected:
     /// @brief internal: publish with copied data managed by shared_ptr.

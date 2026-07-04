@@ -10,11 +10,13 @@
 
 #include <core/system/registration.hpp>
 #include <core/interfaces/ir_bootstrap.hpp>
+#include <core/interfaces/ir_staged_system.hpp>
 
 #include <_vent/accessors.hpp>
 #include <_vent/client_registration.hpp>
 #include <_vent/core/ir_dependencies.hpp>
 
+#include <algorithm>
 #include <cassert>
 
 namespace vent {
@@ -176,6 +178,8 @@ auto system_creator::categorize_systems(system_registry&             registry,
     bootstrap_out.clear();
     regular_out.clear();
 
+    log()->trace("system_creator", "categorizing {} systems...", all_names.size());
+
     for (const auto& name : all_names) {
         if (registry.has_role<ir_bootstrap>(name)) {
             bootstrap_out.push_back(name);
@@ -183,6 +187,28 @@ auto system_creator::categorize_systems(system_registry&             registry,
             regular_out.push_back(name);
         }
     }
+
+    log()->trace("system_creator", "  {} bootstrap systems, {} regular systems found.", bootstrap_out.size(), regular_out.size());
+
+    // sort bootstrap systems by priority (lowest first)
+    std::sort(bootstrap_out.begin(),
+              bootstrap_out.end(),
+              [&registry](const std::string& a, const std::string& b) {
+                  auto* entry_a = registry.get_entry(a);
+                  auto* entry_b = registry.get_entry(b);
+                  auto* a_impl =
+                      entry_a
+                          ? dynamic_cast<ir_bootstrap*>(entry_a->instance.get())
+                          : nullptr;
+                  auto* b_impl =
+                      entry_b
+                          ? dynamic_cast<ir_bootstrap*>(entry_b->instance.get())
+                          : nullptr;
+
+                  i32 p_a = a_impl ? a_impl->bootstrap_priority() : 0;
+                  i32 p_b = b_impl ? b_impl->bootstrap_priority() : 0;
+                  return p_a < p_b;
+              });
 }
 
 auto system_creator::get_startable_systems(system_registry& registry,
@@ -242,7 +268,7 @@ auto system_creator::initialize_bootstrap(init_context&                ctx,
         // bootstrap systems use single-stage initialization.
         auto result = entry->instance->on_initialization();
 
-        if (result.state == system_initialization_result::action::failed) {
+        if (result == system_initialization_status::failed) {
             log()->error("system_creator",
                          "bootstrap system '{}' failed to initialize.",
                          name);
@@ -272,32 +298,52 @@ auto system_creator::initialize_bootstrap(init_context&                ctx,
 
 auto system_creator::initialize_one(system_registry&   registry,
                                     const std::string& name)
-    -> system_initialization_result::action {
+    -> system_init_command::action {
     auto* entry = registry.get_entry(name);
     if (!entry) {
-        return system_initialization_result::action::failed;
+        return system_init_command::action::failed;
     }
 
-    // run initialization loop until complete, failed, or awaiting events.
-    while (true) {
-        auto result = entry->instance->on_initialization(entry->stage);
+    if (auto* staged = dynamic_cast<ir_staged_system*>(entry->instance.get())) {
+        log()->trace("system_creator",
+                     "system '{}' is an ir_staged_system! starting loop...",
+                     name);
+        // run initialization loop until complete, failed, or awaiting events.
+        while (true) {
+            auto result = staged->on_staged_initialization(entry->stage);
 
-        switch (result.state) {
-            case system_initialization_result::action::proceed:
-                entry->stage++;
-                continue;
+            switch (result.state) {
+                case system_init_command::action::proceed:
+                    log()->trace("system_creator", "  system '{}' stage {} returned proceed.", name, entry->stage);
+                    entry->stage++;
+                    continue;
 
-            case system_initialization_result::action::await_event:
-                entry->pending_events = std::move(result.events);
-                return system_initialization_result::action::await_event;
+                case system_init_command::action::await_event:
+                    log()->trace("system_creator", "  system '{}' stage {} returned await_event.", name, entry->stage);
+                    entry->pending_events = std::move(result.events);
+                    return system_init_command::action::await_event;
 
-            case system_initialization_result::action::complete:
-                return system_initialization_result::action::complete;
+                case system_init_command::action::complete:
+                    log()->trace("system_creator", "  system '{}' stage {} returned complete.", name, entry->stage);
+                    return system_init_command::action::complete;
 
-            case system_initialization_result::action::failed:
-                return system_initialization_result::action::failed;
+                case system_init_command::action::failed:
+                    log()->trace("system_creator", "  system '{}' stage {} returned failed.", name, entry->stage);
+                    return system_init_command::action::failed;
+            }
         }
+    } else {
+        log()->trace("system_creator",
+                     "system '{}' is not an ir_staged_system. calling "
+                     "on_initialization().",
+                     name);
+        auto result = entry->instance->on_initialization();
+        return result == system_initialization_status::success
+                   ? system_init_command::action::complete
+                   : system_init_command::action::failed;
     }
+
+    return system_init_command::action::failed;
 }
 
 auto system_creator::initialize_regular(init_context&                ctx,
@@ -332,20 +378,20 @@ auto system_creator::initialize_regular(init_context&                ctx,
             auto outcome = initialize_one(ctx.registry, sys_name);
 
             switch (outcome) {
-                case system_initialization_result::action::complete:
+                case system_init_command::action::complete:
                     ctx.registry.mark_system_ready(sys_name);
                     if (ctx.on_ready)
                         ctx.on_ready(sys_name);
                     on_first_pass();
                     break;
 
-                case system_initialization_result::action::await_event:
+                case system_init_command::action::await_event:
                     // system is waiting for events. first pass is done.
                     // todo: setup event subscriptions for continuation.
                     on_first_pass();
                     break;
 
-                case system_initialization_result::action::failed:
+                case system_init_command::action::failed:
                     ctx.registry.mark_system_failed(sys_name);
                     if (ctx.on_failed)
                         ctx.on_failed(sys_name);

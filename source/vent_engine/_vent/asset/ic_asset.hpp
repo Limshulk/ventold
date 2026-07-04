@@ -18,9 +18,9 @@ namespace vent {
 
 class ic_asset {
 public:
-    static constexpr std::string_view system_name = "vent.system.asset";
-
     virtual ~ic_asset() = default;
+
+    static constexpr std::string_view system_name = "vent.system.asset";
 
     /// @brief mounts a physical directory to a virtual path.
     virtual auto mount(std::string_view protocol,

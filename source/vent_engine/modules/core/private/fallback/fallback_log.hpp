@@ -17,7 +17,7 @@
 //     real log system isn't available or has shut down.
 //   - code can use log()->info(...) uniformly throughout the engine.
 
-#include <_vent/core/ic_log.hpp>
+#include <_vent/log/ic_log.hpp>
 
 #include <core/thread_registry.hpp>
 

@@ -40,7 +40,7 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
                  "system_registry::initialize_all() called.");
 
     if (_initialized) {
-        log()->warn_f("system_registry", "already initialized.");
+        log()->debug_f("system_registry", "already initialized.");
         return true;
     }
 
@@ -67,7 +67,10 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
         bootstrap_systems.size(),
         regular_systems.size());
     for (const auto& name : bootstrap_systems) {
-        log()->trace("system_registry", "  - bs: {}.", name);
+        auto* entry = get_entry(name);
+        auto* impl = entry ? dynamic_cast<ir_bootstrap*>(entry->instance.get()) : nullptr;
+        i32 p = impl ? impl->bootstrap_priority() : 0;
+        log()->trace("system_registry", "  - bs: {}. priority: {}", name, p);
     }
     for (const auto& name : regular_systems) {
         log()->trace("system_registry", "  - rs: {}.", name);
@@ -193,7 +196,7 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
         return false;
     }
 
-    log()->trace("system_registry",
+    log()->info("system_registry",
                  "{} system(s) initialized successfully, {} awaiting events.",
                  result.ready,
                  result.awaiting);
@@ -553,8 +556,11 @@ auto system_registry::get_all_system_names() const -> std::vector<std::string> {
     return names;
 }
 
-auto system_registry::is_ready(const std::string& name) const -> bool {
-    return is_system_ready(name);
+auto system_registry::is_ready(std::string_view name) const -> bool {
+    auto it = _systems.find(std::string(name));
+    if (it == _systems.end())
+        return false;
+    return it->second.is_ready();
 }
 
 auto system_registry::mark_system_ready(const std::string& name) -> void {
@@ -600,13 +606,6 @@ auto system_registry::mark_system_failed(const std::string& name) -> void {
 
 // --- internal ---
 // —————————————————————————————————————————————————————————————————————————————
-
-auto system_registry::is_system_ready(std::string_view name) const -> bool {
-    auto it = _systems.find(std::string(name));
-    if (it == _systems.end())
-        return false;
-    return it->second.is_ready();
-}
 
 auto system_registry::cache_role_interfaces() -> void {
     // todo: replace with double-buffered atomic swap for lock-free reads.

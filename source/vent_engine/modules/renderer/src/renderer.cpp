@@ -16,7 +16,7 @@
 
 namespace vent {
 
-auto renderer_system::initialize() -> system_initialization_result {
+auto renderer_system::initialize() -> bool {
 
     // load the render backend using the system registry.
     // todo: for now, we only have one backend. once there are multiple, we
@@ -26,13 +26,13 @@ auto renderer_system::initialize() -> system_initialization_result {
     auto& registry = static_cast<i_system_registry&>(system());
     if (!registry.load_plugin_library("vent_vulkan_backend")) {
         log()->error("renderer", "failed to load vulkan backend plugin.");
-        return system_initialization_result::failed();
+        return false;
     }
 
     log()->trace("renderer", "initializing render backend plugin...");
     if (!registry.initialize_plugin_systems("vent_vulkan_backend")) {
         log()->error("renderer", "failed to initialize vulkan backend plugin.");
-        return system_initialization_result::failed();
+        return false;
     }
 
     _backend = system().get<i_render_backend>();
@@ -126,7 +126,7 @@ auto renderer_system::initialize() -> system_initialization_result {
         }
     }
 
-    return system_initialization_result::complete();
+    return true;
 }
 
 auto renderer_system::shutdown() -> void {
@@ -156,6 +156,7 @@ auto renderer_system::shutdown() -> void {
 
 auto renderer_system::set_frames_in_flight(ic_window* window, u32 frames)
     -> void {
+    log()->trace("renderer", "setting frames in flight to {}", frames);
     if (_backend) {
         _backend->set_frames_in_flight(window, frames);
     }
@@ -176,6 +177,7 @@ auto renderer_system::end_frame(ic_window* window) -> void {
 
 auto renderer_system::create_graphics_pipeline(const pipeline_desc& desc)
     -> std::unique_ptr<ic_pipeline> {
+    log()->trace("renderer", "creating graphics pipeline");
     if (_backend) {
         return _backend->create_graphics_pipeline(desc);
     }
@@ -188,12 +190,13 @@ auto renderer_system::bind_pipeline(ic_pipeline* pipeline) -> void {
     }
 }
 
-auto renderer_system::create_mesh(std::span<const vertex> vertices)
+auto renderer_system::create_mesh(std::span<const vertex>   vertices,
+                                  std::span<const uint32_t> indices)
     -> mesh_handle {
-    if (_backend) {
-        return _backend->create_mesh(vertices);
-    }
-    return INVALID_MESH_HANDLE;
+    log()->trace("renderer", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
+    if (!_backend)
+        return INVALID_MESH_HANDLE;
+    return _backend->create_mesh(vertices, indices);
 }
 
 auto renderer_system::get_command_list() -> command_list& {
@@ -207,7 +210,8 @@ auto renderer_system::submit_command_lists(std::span<command_list* const> lists)
     usize total_packets = 0;
     for (auto* list : lists) {
         list->sort();
-        total_packets += list->get_packets().size();
+        usize count = list->get_packets().size();
+        total_packets += count;
     }
 
     std::vector<render_packet> all_packets;

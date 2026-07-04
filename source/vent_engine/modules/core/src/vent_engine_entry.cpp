@@ -31,15 +31,14 @@ auto parse_command_line(int argc, char** argv) -> void {
 
         // display backend: --x11 or --wayland.
         if (arg == "--x11" || arg == "-x11") {
-            log()->info("engine", "forcing X11 backend via command line\n---");
+            log()->trace("engine", "forcing X11 backend via command line");
 #ifdef VENT_WINDOWS
             _putenv_s("VENT_DISPLAY_BACKEND", "x11");
 #else
             setenv("VENT_DISPLAY_BACKEND", "x11", 1);
 #endif
         } else if (arg == "--wayland" || arg == "-wayland") {
-            log()->info("engine",
-                        "forcing Wayland backend via command line\n---");
+            log()->trace("engine", "forcing Wayland backend via command line");
 #ifdef VENT_WINDOWS
             _putenv_s("VENT_DISPLAY_BACKEND", "wayland");
 #else
@@ -51,10 +50,10 @@ auto parse_command_line(int argc, char** argv) -> void {
                         "  --x11, -x11          force X11/XWayland backend");
             log()->info("engine",
                         "  --wayland, -wayland  force Wayland backend");
-            log()->info("engine", "  --help, -h           show this help\n---");
+            log()->info("engine", "  --help, -h           show this help");
         } else if (arg == "--no_async" || arg == "-no_async") {
-            log()->info("engine",
-                        "disabling async job system via command line\n---");
+            log()->trace("engine",
+                         "disabling async job system via command line");
             g_no_async = true;
         }
     }
@@ -65,35 +64,48 @@ VENT_EXTERN_C VENT_API auto vent_engine_entry(const engine_config& config)
     // register this one as main thread in the registry.
     thread_registry::register_thread("MAIN");
 
+    log()->trace("core", "entering vent_engine_entry. MAIN thread registered.");
     log()->info("core", "initializing vent engine for '{}'...", config.app_id);
 
+    log()->trace(
+        "core", "parsing command line arguments ({} args)...", config.argc);
     parse_command_line(config.argc, config.argv);
 
+    log()->trace("core", "creating global system registry...");
     // create and set up the system registry.
     system_registry registry;
     set_system_registry(&registry);
+    log()->trace("core", "global system registry set.");
 
+    log()->trace("core", "passing control to registry.initialize_all()...");
     // initialize all systems (bootstrap first, load plugins, then regular).
     if (!registry.initialize_all(config)) {
-        log()->error("core", "failed to initialize engine systems");
+        log()->critical("core", "failed to initialize engine systems");
         thread_registry::unregister_thread();
         set_system_registry(nullptr);
         return 1;
     }
 
     log()->info("core", "vent engine initialized successfully");
+    log()->trace("core", "entering main loop...");
 
     // run main loop. returns when client signals exit or error.
     int exit_code = registry.run_main_loop();
 
+    log()->trace("core",
+                 "main loop exited with code {}. beginning shutdown...",
+                 exit_code);
+
     // shutdown all systems in reverse order.
     registry.shutdown_all();
 
+    log()->trace("core", "clearing global system registry pointer...");
     // clear the global registry pointer.
     set_system_registry(nullptr);
 
     log()->info("core", "goodbye from '{}'...", config.app_id);
 
+    log()->trace("core", "unregistering MAIN thread.");
     thread_registry::unregister_thread();
 
     return exit_code;

@@ -8,8 +8,8 @@
 
 #include <asset/interfaces/i_asset.hpp>
 
-#include <_vent/core/ic_log.hpp>
 #include <_vent/core/ir_dependencies.hpp>
+#include <_vent/log/ic_log.hpp>
 
 #include <_vent/asset/shader.hpp>
 #include <_vent/system/system_base.hpp>
@@ -41,10 +41,9 @@ public:
     }
 
     [[nodiscard]]
-    auto on_initialization(i32 stage = 0)
-        -> system_initialization_result override {
-        return initialize() ? system_initialization_result::complete()
-                            : system_initialization_result::failed();
+    auto on_initialization() -> system_initialization_status override {
+        return initialize() ? system_initialization_status::success
+                            : system_initialization_status::failed;
     }
 
     auto on_shutdown() -> void override { shutdown(); }

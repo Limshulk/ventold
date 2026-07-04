@@ -10,6 +10,7 @@ vent_create_client(
     NAME minimal
     MODULES
         core
+        event_bus
         log
         job
         platform

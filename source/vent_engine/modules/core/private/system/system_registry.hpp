@@ -10,7 +10,7 @@
 // plugin library i/o is handled by plugin_manager.
 
 #include <core/interfaces/i_system_registry.hpp>
-#include <core/interfaces/i_event_bus.hpp>
+#include <event_bus/interfaces/i_event_bus.hpp>
 
 #include <_vent/core/ir_runnable.hpp>
 #include <_vent/core/ir_client.hpp>
@@ -152,11 +152,11 @@ public:
     [[nodiscard]]
     auto get_all_system_names() const -> std::vector<std::string>;
 
-    /// @brief check if a system is ready (alias for is_system_ready).
+    /// @brief check if a system is ready.
     /// @param name name of the system.
     /// @return true if fully initialized.
     [[nodiscard]]
-    auto is_ready(const std::string& name) const -> bool;
+    auto is_ready(std::string_view name) const -> bool;
 
     /// @brief mark a system as ready. adds to init order and publishes ready
     /// event.
@@ -170,12 +170,6 @@ public:
 private:
     // --- internal ---
     // —————————————————————————————————————————————————————————————————————————
-
-    /// @brief check if a system is fully initialized.
-    /// @param name name of the system.
-    /// @return true if found and ready.
-    [[nodiscard]]
-    auto is_system_ready(std::string_view name) const -> bool;
 
     /// @brief rebuild cached role interfaces (ir_runnable, ir_client) from
     /// current system state and configure the main loop.

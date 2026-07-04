@@ -191,9 +191,9 @@ private:
 
 class ic_job {
 public:
-    static constexpr std::string_view system_name = "vent.system.job";
-
     virtual ~ic_job() = default;
+
+    static constexpr std::string_view system_name = "vent.system.job";
 
     // --- identification ---
     // —————————————————————————————————————————————————————————————————————————

@@ -12,9 +12,10 @@ vent_create_module(
         # core module sources
         src/vent_engine_entry.cpp
         
-        src/event_bus_system.cpp
         src/main_loop.cpp
         src/plugin_manager.cpp
         src/system_creator.cpp
         src/system_registry.cpp
+    INTERNAL_DEPS
+        event_bus
 )

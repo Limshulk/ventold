@@ -21,10 +21,10 @@
 namespace vent {
 
 class ic_system_registry {
-protected:
 public:
     virtual ~ic_system_registry() = default;
 
+public:
     /// @brief get a system interface by type. asserts if not found.
     /// @tparam T type of the interface.
     /// @return pointer to the interface. never nullptr.

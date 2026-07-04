@@ -9,6 +9,8 @@
 // the engine shared library is loaded. but don't worry, there ain't no secrets
 // in this file :) .
 
+#include <_vent/vent_sdk.hpp>
+
 #include <string>
 
 #ifdef VENT_WINDOWS

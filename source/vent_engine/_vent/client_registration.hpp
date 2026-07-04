@@ -85,10 +85,9 @@ public:
 
     /// @brief system initialization. forwards to on_initialize().
     [[nodiscard]]
-    auto on_initialization(i32 /*stage*/)
-        -> system_initialization_result override {
-        return on_initialize() ? system_initialization_result::complete()
-                               : system_initialization_result::failed();
+    auto on_initialization() -> system_initialization_status override {
+        return on_initialize() ? system_initialization_status::success
+                               : system_initialization_status::failed;
     }
 
     // --- ir_client implementation ---
@@ -111,7 +110,7 @@ protected:
         true};  ///< directly controls the vent main loop.
 };
 
-/// @brief pending client factory function type..
+/// @brief pending client factory function type.
 using client_factory_fn = std::function<std::unique_ptr<client_base>()>;
 
 /// @brief register the client factory. called by VENT_REGISTER_CLIENT macro.

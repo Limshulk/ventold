@@ -83,42 +83,29 @@ VENT_API auto platform_if_ready() -> ic_platform* {
                              : nullptr;
 }
 
-
 // --- log helper implementations ---
 // —————————————————————————————————————————————————————————————————————————————
 
-    struct log_buffer_iterator {
-        char* ptr;
-        char* end;
-        using iterator_category = std::output_iterator_tag;
-        using value_type        = char;
-        using difference_type   = std::ptrdiff_t;
-        using pointer           = char*;
-        using reference         = char&;
+void ic_log::format_and_log(log_level        lvl,
+                            const char*      module,
+                            std::string_view fmt,
+                            std::format_args args) {
+    std::string result = std::vformat(fmt, args);
+    this->message(lvl, module, result.c_str());
+}
 
-        log_buffer_iterator& operator=(char c) {
-            if (ptr < end) *ptr++ = c;
-            return *this;
-        }
-        log_buffer_iterator& operator*() { return *this; }
-        log_buffer_iterator& operator++() { return *this; }
-        log_buffer_iterator operator++(int) { return *this; }
-    };
-
-    void ic_log::format_and_log(log_level lvl, const char* module, std::string_view fmt, std::format_args args) {
-        char buffer[4096];
-        log_buffer_iterator out{buffer, buffer + sizeof(buffer) - 1};
-        auto result = std::vformat_to(out, fmt, args);
-        *result.ptr = '\0';
-        this->message(lvl, module, buffer);
-    }
-
-    void ic_log::format_and_log_full(log_level lvl, const char* module, const std::source_location& loc, std::string_view fmt, std::format_args args) {
-        char buffer[4096];
-        log_buffer_iterator out{buffer, buffer + sizeof(buffer) - 1};
-        auto result = std::vformat_to(out, fmt, args);
-        *result.ptr = '\0';
-        this->message_full(lvl, module, buffer, loc.file_name(), loc.function_name(), static_cast<u32>(loc.line()));
-    }
+void ic_log::format_and_log_full(log_level                   lvl,
+                                 const char*                 module,
+                                 const std::source_location& loc,
+                                 std::string_view            fmt,
+                                 std::format_args            args) {
+    std::string result = std::vformat(fmt, args);
+    this->message_full(lvl,
+                       module,
+                       result.c_str(),
+                       loc.file_name(),
+                       loc.function_name(),
+                       static_cast<u32>(loc.line()));
+}
 
 }  // namespace vent
