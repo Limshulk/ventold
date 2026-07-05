@@ -17,6 +17,7 @@ vulkan_pipeline::vulkan_pipeline(
     const vk::raii::DescriptorSetLayout& global_descriptor_set_layout,
     const pipeline_desc&                 desc,
     vk::Format                           swapchain_image_format,
+    vk::Format                           depth_image_format,
     vk::Extent2D                         swapchain_extent) {
     log()->trace("vulkan", "creating graphics pipeline");
 
@@ -136,6 +137,16 @@ vulkan_pipeline::vulkan_pipeline(
         return;
     }
 
+    // depth and stencil state.
+    vk::PipelineDepthStencilStateCreateInfo depth_stencil {
+        .depthTestEnable       = true,
+        .depthWriteEnable      = true,
+        .depthCompareOp        = vk::CompareOp::eLess,
+        .depthBoundsTestEnable = false,
+        .stencilTestEnable     = false,
+        .minDepthBounds        = 0.0f,
+        .maxDepthBounds        = 1.0f};
+
     // --- pipeline creation ---
 
     vk::StructureChain<vk::GraphicsPipelineCreateInfo,
@@ -148,12 +159,14 @@ vulkan_pipeline::vulkan_pipeline(
              .pViewportState      = &viewport_state,
              .pRasterizationState = &rasterizer,
              .pMultisampleState   = &multisampling,
+             .pDepthStencilState  = &depth_stencil,
              .pColorBlendState    = &color_blending,
              .pDynamicState       = &dynamic_state_info,
              .layout              = *_pipeline_layout,
              .renderPass          = nullptr},
             {.colorAttachmentCount    = 1,
-             .pColorAttachmentFormats = &swapchain_image_format}};
+             .pColorAttachmentFormats = &swapchain_image_format,
+             .depthAttachmentFormat   = depth_image_format}};
 
     try {
         _pipeline = vk::raii::Pipeline(

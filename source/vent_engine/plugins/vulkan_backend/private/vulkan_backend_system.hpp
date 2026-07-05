@@ -121,9 +121,11 @@ private:
 
     // --- global uniforms and descriptors ---
     // —————————————————————————————————————————————————————————————————————————
-    std::vector<VkBuffer>      _global_uniform_buffers;
-    std::vector<VmaAllocation> _global_uniform_allocations;
-    std::vector<void*>         _global_uniform_mapped;
+    std::vector<VkBuffer>              _global_uniform_buffers;
+    std::vector<VmaAllocation>         _global_uniform_allocations;
+    std::vector<void*>                 _global_uniform_mapped;
+
+    vk::Format _depth_format = vk::Format::eUndefined;
 
     vk::raii::DescriptorSetLayout        _global_descriptor_set_layout = nullptr;
     vk::raii::DescriptorPool             _descriptor_pool = nullptr;
@@ -223,6 +225,9 @@ public:
 private:
     auto create_global_uniforms() -> void;
     auto destroy_global_uniforms() -> void;
+
+    auto find_supported_format(const std::vector<vk::Format>& candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features) const -> vk::Format;
+    auto find_depth_format() const -> vk::Format;
 
     // --- multithreading ---
     struct thread_command_context {

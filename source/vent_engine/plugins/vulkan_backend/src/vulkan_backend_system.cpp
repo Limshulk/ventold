@@ -126,6 +126,7 @@ auto vulkan_backend_system::initialize() -> bool {
     }
 
     create_global_uniforms();
+    _depth_format = find_depth_format();
 
     log()->info("vulkan", "vulkan backend initialized.");
     return true;
@@ -638,6 +639,8 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
                                                        _physical_device,
                                                        std::move(surface),
                                                        window,
+                                                       _allocator,
+                                                       _depth_format,
                                                        _graphics_queue_family,
                                                        surface_present_family,
                                                        2);
@@ -773,6 +776,36 @@ auto vulkan_backend_system::end_frame(ic_window* window) -> void {
     }
 }
 
+auto vulkan_backend_system::find_supported_format(
+    const std::vector<vk::Format>& candidates,
+    vk::ImageTiling                tiling,
+    vk::FormatFeatureFlags         features) const -> vk::Format {
+    for (vk::Format format : candidates) {
+        vk::FormatProperties props =
+            _physical_device.getFormatProperties(format);
+
+        if (tiling == vk::ImageTiling::eLinear &&
+            (props.linearTilingFeatures & features) == features) {
+            return format;
+        } else if (tiling == vk::ImageTiling::eOptimal &&
+                   (props.optimalTilingFeatures & features) == features) {
+            return format;
+        }
+    }
+
+    log()->error("vulkan", "failed to find supported format!");
+    return vk::Format::eUndefined;
+}
+
+auto vulkan_backend_system::find_depth_format() const -> vk::Format {
+    return find_supported_format(
+        {vk::Format::eD32Sfloat,
+         vk::Format::eD32SfloatS8Uint,
+         vk::Format::eD24UnormS8Uint},
+        vk::ImageTiling::eOptimal,
+        vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+}
+
 auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle,
                                                      const pipeline_desc& desc)
     -> void {
@@ -789,8 +822,13 @@ auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle,
     vk::Format   format = _surfaces[0].swapchain->get_image_format();
     vk::Extent2D extent = _surfaces[0].swapchain->get_extent();
 
-    _pipelines[handle] = std::make_unique<vulkan_pipeline>(
-        _device, get_global_descriptor_set_layout(), desc, format, extent);
+    _pipelines[handle] =
+        std::make_unique<vulkan_pipeline>(_device,
+                                          get_global_descriptor_set_layout(),
+                                          desc,
+                                          format,
+                                          _depth_format,
+                                          extent);
 }
 
 auto vulkan_backend_system::destroy_graphics_pipeline(pipeline_handle handle)
@@ -1053,6 +1091,7 @@ auto vulkan_backend_system::record_command_chunk(
     vk::CommandBufferInheritanceRenderingInfo inheritance_rendering {
         .colorAttachmentCount    = 1,
         .pColorAttachmentFormats = &format,
+        .depthAttachmentFormat   = _depth_format,
         .rasterizationSamples    = vk::SampleCountFlagBits::e1,
     };
     vk::CommandBufferInheritanceInfo inheritance {

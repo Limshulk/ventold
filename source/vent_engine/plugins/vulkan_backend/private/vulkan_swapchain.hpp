@@ -12,6 +12,7 @@
 #include <_vent/platform/ic_window.hpp>
 
 #include <vulkan/vulkan_raii.hpp>
+#include <vma/vk_mem_alloc.h>
 
 #include <vector>
 
@@ -35,6 +36,8 @@ public:
                      const vk::raii::PhysicalDevice& physical_device,
                      vk::raii::SurfaceKHR            surface,
                      ic_window*                      window,
+                     VmaAllocator                    allocator,
+                     vk::Format                      depth_format,
                      u32                             graphics_family,
                      u32                             present_family,
                      u32                             frames_in_flight = 2);
@@ -116,9 +119,17 @@ private:
     std::vector<vk::raii::ImageView> _image_views;
     vk::raii::SwapchainKHR           _swapchain = nullptr;
 
+    // --- depth buffer ---
+    VmaAllocator          _allocator;
+    vk::Format            _depth_format;
+    VkImage               _depth_image      = nullptr;
+    VmaAllocation         _depth_allocation = nullptr;
+    vk::raii::ImageView   _depth_image_view = nullptr;
+
     // --- initialization helpers ---
     auto create_swapchain() -> bool;
     auto create_image_views() -> bool;
+    auto create_depth_resources() -> bool;
     auto create_command_pool() -> bool;
     auto create_sync_objects() -> bool;
 };

@@ -8,7 +8,6 @@
 #include <vulkan_swapchain.hpp>
 
 #include <_vent/accessors.hpp>
-#include <iostream>
 
 namespace vent {
 
@@ -17,6 +16,8 @@ vulkan_swapchain::vulkan_swapchain(
     const vk::raii::PhysicalDevice& physical_device,
     vk::raii::SurfaceKHR            surface,
     ic_window*                      window,
+    VmaAllocator                    allocator,
+    vk::Format                      depth_format,
     u32                             graphics_family,
     u32                             present_family,
     u32                             frames_in_flight)
@@ -26,11 +27,14 @@ vulkan_swapchain::vulkan_swapchain(
       _window(window),
       _graphics_family(graphics_family),
       _present_family(present_family),
-      _max_frames_in_flight(frames_in_flight) {
+      _max_frames_in_flight(frames_in_flight),
+      _allocator(allocator),
+      _depth_format(depth_format) {
 
     // initialize the swapchain and all required resources.
     if (!create_swapchain() || !create_image_views() ||
-        !create_command_pool() || !create_sync_objects()) {
+        !create_depth_resources() || !create_command_pool() ||
+        !create_sync_objects()) {
         log()->error("vulkan",
                      "failed to initialize swapchain for window '{}'.",
                      _window->get_title());
@@ -39,6 +43,12 @@ vulkan_swapchain::vulkan_swapchain(
 
 vulkan_swapchain::~vulkan_swapchain() {
     _device.waitIdle();
+
+    _depth_image_view.clear();
+    if (_depth_image) {
+        vmaDestroyImage(_allocator, _depth_image, _depth_allocation);
+        _depth_image = nullptr;
+    }
 
     _swapchain.clear();
 
@@ -159,13 +169,41 @@ auto vulkan_swapchain::begin_frame() -> bool {
                                 .levelCount     = 1,
                                 .baseArrayLayer = 0,
                                 .layerCount     = 1}};
+
+    vk::ImageMemoryBarrier2 depth_barrier = {
+        .srcStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                        vk::PipelineStageFlagBits2::eLateFragmentTests,
+        .srcAccessMask = {},
+        .dstStageMask  = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                        vk::PipelineStageFlagBits2::eLateFragmentTests,
+        .dstAccessMask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+        .oldLayout     = vk::ImageLayout::eUndefined,
+        .newLayout     = vk::ImageLayout::eDepthAttachmentOptimal,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image               = _depth_image,
+        .subresourceRange    = {.aspectMask     = vk::ImageAspectFlagBits::eDepth,
+                                .baseMipLevel   = 0,
+                                .levelCount     = 1,
+                                .baseArrayLayer = 0,
+                                .layerCount     = 1}};
+
+    if (_depth_format == vk::Format::eD32SfloatS8Uint ||
+        _depth_format == vk::Format::eD24UnormS8Uint) {
+        depth_barrier.subresourceRange.aspectMask |=
+            vk::ImageAspectFlagBits::eStencil;
+    }
+
+    vk::ImageMemoryBarrier2 barriers[] = {barrier, depth_barrier};
+
     vk::DependencyInfo dependency_info = {.dependencyFlags         = {},
-                                          .imageMemoryBarrierCount = 1,
-                                          .pImageMemoryBarriers    = &barrier};
+                                          .imageMemoryBarrierCount = 2,
+                                          .pImageMemoryBarriers    = barriers};
     cmd.pipelineBarrier2(dependency_info);
 
     // clear value.
     vk::ClearValue clear_value = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    vk::ClearValue depth_clear_value = vk::ClearDepthStencilValue(1.0f, 0);
 
     // begin rendering.
     vk::RenderingAttachmentInfo rendering_attachment_info {
@@ -175,12 +213,20 @@ auto vulkan_swapchain::begin_frame() -> bool {
         .storeOp     = vk::AttachmentStoreOp::eStore,
         .clearValue  = clear_value};
 
+    vk::RenderingAttachmentInfo depth_attachment_info {
+        .imageView   = *_depth_image_view,
+        .imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
+        .loadOp      = vk::AttachmentLoadOp::eClear,
+        .storeOp     = vk::AttachmentStoreOp::eDontCare,
+        .clearValue  = depth_clear_value};
+
     vk::RenderingInfo rendering_info {
         .flags      = vk::RenderingFlagBits::eContentsSecondaryCommandBuffers,
         .renderArea = {.offset = {0, 0}, .extent = _extent},
         .layerCount = 1,
         .colorAttachmentCount = 1,
-        .pColorAttachments    = &rendering_attachment_info};
+        .pColorAttachments    = &rendering_attachment_info,
+        .pDepthAttachment     = &depth_attachment_info};
 
     cmd.setViewport(0,
                     vk::Viewport(0.0f,
@@ -495,13 +541,79 @@ auto vulkan_swapchain::recreate() -> bool {
     // cleanup non-swapchain resources, swapchain is handled via .oldSwapchain.
     _image_views.clear();
 
-    if (!create_swapchain() || !create_image_views()) {
+    _depth_image_view.clear();
+    if (_depth_image) {
+        vmaDestroyImage(_allocator, _depth_image, _depth_allocation);
+        _depth_image = nullptr;
+    }
+
+    if (!create_swapchain() || !create_image_views() ||
+        !create_depth_resources()) {
         log()->error("vulkan", "failed to recreate swapchain!");
         return false;
     }
 
     log()->info(
         "vulkan", "swapchain recreated for window '{}'.", _window->get_title());
+    return true;
+}
+
+auto vulkan_swapchain::create_depth_resources() -> bool {
+    log()->trace("vulkan", "creating depth resources");
+
+    VkImageCreateInfo image_info = {};
+    image_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType         = VK_IMAGE_TYPE_2D;
+    image_info.extent.width      = _extent.width;
+    image_info.extent.height     = _extent.height;
+    image_info.extent.depth      = 1;
+    image_info.mipLevels         = 1;
+    image_info.arrayLayers       = 1;
+    image_info.format            = static_cast<VkFormat>(_depth_format);
+    image_info.tiling            = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage             = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image_info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.samples           = VK_SAMPLE_COUNT_1_BIT;
+
+    VmaAllocationCreateInfo alloc_info = {};
+    alloc_info.usage                   = VMA_MEMORY_USAGE_AUTO;
+
+    if (vmaCreateImage(_allocator,
+                       &image_info,
+                       &alloc_info,
+                       &_depth_image,
+                       &_depth_allocation,
+                       nullptr) != VK_SUCCESS) {
+        log()->error("vulkan", "failed to create depth image.");
+        return false;
+    }
+
+    vk::ImageViewCreateInfo view_info {
+        .image            = _depth_image,
+        .viewType         = vk::ImageViewType::e2D,
+        .format           = _depth_format,
+        .subresourceRange = vk::ImageSubresourceRange {
+            .aspectMask     = vk::ImageAspectFlagBits::eDepth,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1}};
+
+    if (_depth_format == vk::Format::eD32SfloatS8Uint ||
+        _depth_format == vk::Format::eD24UnormS8Uint) {
+        view_info.subresourceRange.aspectMask |=
+            vk::ImageAspectFlagBits::eStencil;
+    }
+
+    try {
+        _depth_image_view = vk::raii::ImageView(_device, view_info);
+    } catch (const vk::SystemError& err) {
+        log()->error(
+            "vulkan", "failed to create depth image view: {}", err.what());
+        return false;
+    }
+
     return true;
 }
 

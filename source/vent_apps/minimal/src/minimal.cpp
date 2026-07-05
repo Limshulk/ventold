@@ -7,7 +7,6 @@
 
 #include <_vent/asset/shader.hpp>
 
-
 #include <_vent/math/math.hpp>
 
 #include <memory>
@@ -92,7 +91,7 @@ public:
             desc.shader         = shader;
             desc.vertex_entry   = "vertMain";
             desc.fragment_entry = "fragMain";
-            _pipeline   = vent::renderer()->create_graphics_pipeline(desc);
+            _pipeline = vent::renderer()->create_graphics_pipeline(desc);
             if (_pipeline != vent::INVALID_PIPELINE_HANDLE) {
                 vent::log()->trace("client",
                                    "successfully created graphics pipeline!");
@@ -105,24 +104,62 @@ public:
         }
 
         vent::vertex vertices[] = {
-            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, 0.0f, 0.0f},  // red (top left)
-            {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, 1.0f, 0.0f},  // green (top right)
-            {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, 1.0f, 1.0f},  // blue (bottom right)
-            {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f}   // white (bottom left)
+            // Front face (Z = 0.5f)
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f},
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 0.0f},
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 1.0f},
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f},
+            
+            // Back face (Z = -0.5f)
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f},
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 0.0f},
+            {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 1.0f},
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f},
+            
+            // Left face (X = -0.5f)
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f},
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 0.0f},
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 1.0f},
+            {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f},
+            
+            // Right face (X = 0.5f)
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f},
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 0.0f},
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 1.0f},
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f},
+            
+            // Top face (Y = -0.5f)
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f},
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 0.0f},
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 1.0f},
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f},
+            
+            // Bottom face (Y = 0.5f)
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f},
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 0.0f},
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 1.0f, 1.0f},
+            {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f},
         };
 
-        vent::u32 indices[] = {0, 1, 2, 2, 3, 0};
+        vent::u32 indices[] = {
+            0, 1, 2, 2, 3, 0,       // Front
+            4, 5, 6, 6, 7, 4,       // Back
+            8, 9, 10, 10, 11, 8,    // Left
+            12, 13, 14, 14, 15, 12, // Right
+            16, 17, 18, 18, 19, 16, // Top
+            20, 21, 22, 22, 23, 20  // Bottom
+        };
 
         _triangle_mesh = vent::renderer()->create_mesh(vertices, indices);
 
         // load texture
-        vent::image_asset* image = vent::asset()->load_image("app://assets/texture.jpg");
+        vent::image_asset* image =
+            vent::asset()->load_image("app://assets/texture.jpg");
         if (image) {
             vent::texture_desc tex_desc {
-                .width = image->width,
+                .width  = image->width,
                 .height = image->height,
-                .pixels = std::span<const vent::u8>(image->pixels)
-            };
+                .pixels = std::span<const vent::u8>(image->pixels)};
             _texture = vent::renderer()->create_texture(tex_desc);
             vent::log()->trace("client", "successfully created texture!");
         } else {
@@ -149,34 +186,30 @@ public:
         }
 
         // compute matrices for the uniform buffer.
-        vent::math::mat4 model = vent::math::rotate_z(
-            _elapsed * vent::math::radians(90.0f)
-        );
+        vent::math::mat4 model =
+            vent::math::rotate_z(_elapsed * vent::math::radians(90.0f));
 
-        vent::math::mat4 view = vent::math::look_at(
-            vent::math::vec3(2.0f, 2.0f, 2.0f),
-            vent::math::vec3(0.0f, 0.0f, 0.0f),
-            vent::math::vec3(0.0f, 0.0f, 1.0f)
-        );
+        vent::math::mat4 view =
+            vent::math::look_at(vent::math::vec3(2.0f, 2.0f, 2.0f),
+                                vent::math::vec3(0.0f, 0.0f, 0.0f),
+                                vent::math::vec3(0.0f, 0.0f, 1.0f));
 
         vent::math::mat4 proj = vent::math::perspective(
-            vent::math::radians(45.0f), 1280.0f / 720.0f, 0.1f, 10.0f
-        );
+            vent::math::radians(45.0f), 1280.0f / 720.0f, 0.1f, 10.0f);
 
         vent::uniform_buffer_object ubo = {
-            .model = model,
-            .view = view,
-            .proj = proj
-        };
+            .model = model, .view = view, .proj = proj};
 
         // render to all windows
         for (auto* window : _windows) {
             if (vent::renderer()->begin_frame(window)) {
 
-                // update uniforms per frame (the active swapchain guarantees correct buffering).
+                // update uniforms per frame (the active swapchain guarantees
+                // correct buffering).
                 vent::renderer()->update_global_uniforms(ubo);
 
-                if (_pipeline != vent::INVALID_PIPELINE_HANDLE && _triangle_mesh != vent::INVALID_MESH_HANDLE) {
+                if (_pipeline != vent::INVALID_PIPELINE_HANDLE &&
+                    _triangle_mesh != vent::INVALID_MESH_HANDLE) {
                     vent::renderer()->bind_pipeline(_pipeline);
 
                     auto& cmd_list = vent::renderer()->get_command_list();
@@ -224,12 +257,12 @@ public:
     }
 
 private:
-    std::vector<vent::ic_window*>      _windows;
-    vent::pipeline_handle _pipeline = vent::INVALID_PIPELINE_HANDLE;
-    vent::mesh_handle _triangle_mesh = vent::INVALID_MESH_HANDLE;
-    vent::texture_handle _texture = vent::INVALID_TEXTURE_HANDLE;
-    vent::u64         _frame_count   = 0;
-    vent::f64         _elapsed       = 0.0;
+    std::vector<vent::ic_window*> _windows;
+    vent::pipeline_handle         _pipeline = vent::INVALID_PIPELINE_HANDLE;
+    vent::mesh_handle             _triangle_mesh = vent::INVALID_MESH_HANDLE;
+    vent::texture_handle          _texture       = vent::INVALID_TEXTURE_HANDLE;
+    vent::u64                     _frame_count   = 0;
+    vent::f64                     _elapsed       = 0.0;
 };
 
 VENT_REGISTER_CLIENT(minimal_client);
