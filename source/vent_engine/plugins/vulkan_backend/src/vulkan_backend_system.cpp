@@ -157,6 +157,23 @@ auto vulkan_backend_system::shutdown() -> void {
         _meshes.clear();
     }
 
+    // destroy textures. the raii view/sampler members clean themselves up, but
+    // the VkImage + VmaAllocation are raw and must be freed through vma before
+    // the allocator is destroyed below. normally the frontend releases every
+    // texture during its own shutdown, but draining here defensively prevents a
+    // leak (and a use-after-free of the allocator) if any texture survived.
+    {
+        std::lock_guard texture_lock(_texture_mutex);
+        for (auto& [handle, tex] : _textures) {
+            tex.view.clear();
+            tex.sampler.clear();
+            if (tex.image) {
+                vmaDestroyImage(_allocator, tex.image, tex.allocation);
+            }
+        }
+        _textures.clear();
+    }
+
     destroy_global_uniforms();
 
     if (_allocator) {
@@ -168,6 +185,11 @@ auto vulkan_backend_system::shutdown() -> void {
     // explicit cleanup only needed for non-raii resources.
 
     log()->info("vulkan", "vulkan backend shut down.");
+}
+
+auto vulkan_backend_system::wait_for_idle() -> void {
+    if (*_device)
+        _device.waitIdle();
 }
 
 // --- vulkan initialization ---
@@ -643,15 +665,15 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
                                                        _depth_format,
                                                        _graphics_queue_family,
                                                        surface_present_family,
-                                                       2);
+                                                       MAX_FRAMES_IN_FLIGHT);
     } catch (const std::exception& e) {
         log()->error("vulkan",
-                     "Exception during vulkan_swapchain creation: {}",
+                     "exception during vulkan_swapchain creation: {}.",
                      e.what());
         return false;
     } catch (...) {
         log()->error("vulkan",
-                     "Unknown exception during vulkan_swapchain creation");
+                     "unknown exception during vulkan_swapchain creation.");
         return false;
     }
 
@@ -701,20 +723,6 @@ auto vulkan_backend_system::destroy_surface(ic_window* window) -> void {
     for (auto& s : _surfaces) {
         if (s.window == window) {
             s.marked_for_destruction = true;
-            return;
-        }
-    }
-}
-
-auto vulkan_backend_system::set_frames_in_flight(ic_window* window, u32 count)
-    -> void {
-    // we use a shared lock because we only need to read the surface list,
-    // not modify the array itself.
-    std::shared_lock lock(_mutex);
-    for (auto& s : _surfaces) {
-        if (s.window == window) {
-            // the swapchain handles its own recreation internally.
-            s.swapchain->set_frames_in_flight(count);
             return;
         }
     }
@@ -836,32 +844,6 @@ auto vulkan_backend_system::destroy_graphics_pipeline(pipeline_handle handle)
     if (handle == INVALID_PIPELINE_HANDLE)
         return;
     _pipelines.erase(handle);
-    if (_active_pipeline) {
-        bool found = false;
-        for (const auto& [id, pipe] : _pipelines) {
-            if (pipe.get() == _active_pipeline) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            _active_pipeline = nullptr;
-        }
-    }
-}
-
-auto vulkan_backend_system::bind_pipeline(pipeline_handle handle) -> void {
-    if (handle == INVALID_PIPELINE_HANDLE) {
-        _active_pipeline = nullptr;
-        return;
-    }
-
-    auto it = _pipelines.find(handle);
-    if (it != _pipelines.end()) {
-        _active_pipeline = it->second.get();
-    } else {
-        _active_pipeline = nullptr;
-    }
 }
 
 auto vulkan_backend_system::create_global_uniforms() -> void {
@@ -892,8 +874,12 @@ auto vulkan_backend_system::create_global_uniforms() -> void {
     _global_descriptor_set_layout =
         vk::raii::DescriptorSetLayout(_device, layout_info);
 
-    // 2. create buffers
-    const u32    max_frames  = 3;  // MAX_FRAMES_IN_FLIGHT assumption
+    // 2. create buffers.
+    // one uniform buffer + descriptor set per frame in flight (not per swapchain
+    // image): the cpu writes the ring slot for the frame it is preparing, and
+    // the matching fence proves the gpu is done with that slot before we reuse
+    // it. sized off the single MAX_FRAMES_IN_FLIGHT knob, no longer a local "3".
+    const u32    max_frames  = MAX_FRAMES_IN_FLIGHT;
     VkDeviceSize buffer_size = sizeof(uniform_buffer_object);
 
     _global_uniform_buffers.resize(max_frames);
@@ -1105,16 +1091,11 @@ auto vulkan_backend_system::record_command_chunk(
 
     cmd->begin(begin_info);
 
-    if (_active_pipeline) {
-        cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
-                          _active_pipeline->get_pipeline());
-
-        cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                                _active_pipeline->get_pipeline_layout(),
-                                0,
-                                {*_global_descriptor_sets[current_frame]},
-                                {});
-    }
+    // note: pipeline / descriptor / push-constant binding happens per packet
+    // below, keyed off packet.pipeline. we do not pre-bind an "active" pipeline
+    // here — with sorted packets a future optimization can bind only on change,
+    // but the state must be re-established at the start of every secondary
+    // buffer regardless (inherited state does not carry pipeline bindings).
 
     vk::Extent2D extent = _active_swapchain->get_extent();
     vk::Viewport viewport {.x        = 0.0f,
@@ -1129,6 +1110,18 @@ auto vulkan_backend_system::record_command_chunk(
     cmd->setScissor(0, scissor);
 
     for (const auto& packet : chunk) {
+        // resolve the pipeline once. a stale handle here would otherwise throw
+        // std::out_of_range from _pipelines.at() on this worker thread, which
+        // submit_internal captures into the task and rethrows on the main thread
+        // mid-frame where nothing catches it -> std::terminate. skip the packet
+        // and move on instead. (pipelines are immutable between begin_frame and
+        // end_frame, so reading _pipelines without a lock is safe here.)
+        auto pipe_it = _pipelines.find(packet.pipeline);
+        if (pipe_it == _pipelines.end() || !pipe_it->second) {
+            continue;
+        }
+        vulkan_pipeline* pipeline = pipe_it->second.get();
+
         vulkan_mesh_data data;
         {
             std::lock_guard lock(_mesh_mutex);
@@ -1143,18 +1136,16 @@ auto vulkan_backend_system::record_command_chunk(
             cmd->bindVertexBuffers(0, {data.buffer}, {offset});
 
             cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
-                              _pipelines.at(packet.pipeline)->get_pipeline());
-            cmd->bindDescriptorSets(
-                vk::PipelineBindPoint::eGraphics,
-                _pipelines.at(packet.pipeline)->get_pipeline_layout(),
-                0,
-                {*_global_descriptor_sets[current_frame]},
-                {});
-            cmd->pushConstants<math::mat4>(
-                _pipelines.at(packet.pipeline)->get_pipeline_layout(),
-                vk::ShaderStageFlagBits::eVertex,
-                0,
-                packet.transform);
+                              pipeline->get_pipeline());
+            cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                                    pipeline->get_pipeline_layout(),
+                                    0,
+                                    {*_global_descriptor_sets[current_frame]},
+                                    {});
+            cmd->pushConstants<math::mat4>(pipeline->get_pipeline_layout(),
+                                           vk::ShaderStageFlagBits::eVertex,
+                                           0,
+                                           packet.transform);
 
             if (data.index_buffer) {
                 cmd->bindIndexBuffer(
@@ -1606,7 +1597,7 @@ auto vulkan_backend_system::destroy_mesh(mesh_handle handle) -> void {
 
 }  // namespace vent
 
-// --- system registratiob ---
+// --- system registration ---
 // —————————————————————————————————————————————————————————————————————————————
 
 VENT_REGISTER_SYSTEM(vent::vulkan_backend_system, vent::i_render_backend)

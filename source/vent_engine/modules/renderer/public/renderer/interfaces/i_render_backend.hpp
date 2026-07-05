@@ -48,6 +48,10 @@ public:
     /// @brief shutdown the backend and clean up all resources.
     virtual auto shutdown() -> void = 0;
 
+    /// @brief waits for all backend operations to complete and returns
+    /// afterwards.
+    virtual auto wait_for_idle() -> void = 0;
+
     // --- surface management ---
     // —————————————————————————————————————————————————————————————————————————
 
@@ -59,16 +63,6 @@ public:
     /// @brief destroy the surface and swapchain associated with the window.
     /// @param window the window whose surface should be destroyed.
     virtual auto destroy_surface(ic_window* window) -> void = 0;
-
-    // --- configuration ---
-    // —————————————————————————————————————————————————————————————————————————
-
-    /// @brief set the number of frames in flight for a specific window.
-    /// this will trigger a swapchain recreation.
-    /// @param window the window to configure.
-    /// @param frames the number of frames in flight.
-    virtual auto set_frames_in_flight(ic_window* window, u32 frames)
-        -> void = 0;
 
     // --- render loop ---
     // —————————————————————————————————————————————————————————————————————————
@@ -98,10 +92,6 @@ public:
     virtual auto create_texture(texture_handle handle, const texture_desc& desc)
         -> void                                                 = 0;
     virtual auto destroy_texture(texture_handle handle) -> void = 0;
-
-    /// @brief bind a graphics pipeline for the current frame.
-    /// @param handle the pipeline handle to bind.
-    virtual auto bind_pipeline(pipeline_handle handle) -> void = 0;
 
     /// @brief update global uniform buffer data.
     /// @param ubo the uniform data to pass to the renderer.

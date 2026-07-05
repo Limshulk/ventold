@@ -130,7 +130,14 @@ auto renderer_system::initialize() -> bool {
 }
 
 auto renderer_system::shutdown() -> void {
-    log()->trace("renderer", "renderer_system::shutdown() called");
+    log()->trace("renderer", "renderer_system::shutdown() called.");
+
+    if (_backend) {
+        _backend->wait_for_idle();
+    }
+    log()->trace(
+        "renderer",
+        "renderer_system::shutdown(): backend completed all operations.");
 
     if (_window_sub != vent::INVALID_SUBSCRIPTION && event()) {
         event()->unsubscribe(_window_sub);
@@ -178,14 +185,6 @@ auto renderer_system::shutdown() -> void {
 
 // --- ic_renderer implementation ---
 // —————————————————————————————————————————————————————————————————————————————
-
-auto renderer_system::set_frames_in_flight(ic_window* window, u32 frames)
-    -> void {
-    log()->trace("renderer", "setting frames in flight to {}", frames);
-    if (_backend) {
-        _backend->set_frames_in_flight(window, frames);
-    }
-}
 
 auto renderer_system::begin_frame(ic_window* window) -> bool {
     if (_backend) {
@@ -235,35 +234,57 @@ auto renderer_system::end_frame(ic_window* window) -> void {
             mesh_comp->texture_path.empty())
             continue;
 
-        // resolve model
+        // resolve model.
+        // note: these caches are owned by the render thread (end_frame runs on
+        // the main/render thread; shutdown runs on it too, after the loop stops)
+        // so there is no real contention, but we lock consistently with
+        // shutdown()'s use of the same mutexes rather than guarding only one
+        // side. the `failed` flag stops a broken asset from being re-loaded from
+        // disk (and re-logged) on every single frame.
         mesh_handle m_handle = INVALID_MESH_HANDLE;
-        auto&       cached_m = _model_cache[mesh_comp->model_path];
-        if (cached_m.mesh == INVALID_MESH_HANDLE) {
-            cached_m.asset = asset()->load_model(mesh_comp->model_path);
-            if (cached_m.asset && !cached_m.asset->vertices.empty()) {
-                cached_m.mesh = _next_mesh_handle.fetch_add(1);
-                _backend->create_mesh(cached_m.mesh,
-                                      cached_m.asset->vertices,
-                                      cached_m.asset->indices);
+        {
+            std::lock_guard lock(_model_mutex);
+            auto&           cached_m = _model_cache[mesh_comp->model_path];
+            if (!cached_m.failed && cached_m.mesh == INVALID_MESH_HANDLE) {
+                cached_m.asset = asset()->load_model(mesh_comp->model_path);
+                if (cached_m.asset && !cached_m.asset->vertices.empty()) {
+                    cached_m.mesh = _next_mesh_handle.fetch_add(1);
+                    _backend->create_mesh(cached_m.mesh,
+                                          cached_m.asset->vertices,
+                                          cached_m.asset->indices);
+                } else {
+                    cached_m.failed = true;
+                    log()->error("renderer",
+                                 "failed to load model '{}'; will not retry.",
+                                 mesh_comp->model_path);
+                }
             }
+            m_handle = cached_m.mesh;
         }
-        m_handle = cached_m.mesh;
 
-        // resolve texture
+        // resolve texture (same ownership / failed-flag reasoning as above).
         texture_handle t_handle = INVALID_TEXTURE_HANDLE;
-        auto&          cached_t = _texture_cache[mesh_comp->texture_path];
-        if (cached_t.texture == INVALID_TEXTURE_HANDLE) {
-            cached_t.asset = asset()->load_image(mesh_comp->texture_path);
-            if (cached_t.asset) {
-                texture_desc t_desc {
-                    .width  = cached_t.asset->width,
-                    .height = cached_t.asset->height,
-                    .pixels = std::span<const u8>(cached_t.asset->pixels)};
-                cached_t.texture = _next_texture_handle.fetch_add(1);
-                _backend->create_texture(cached_t.texture, t_desc);
+        {
+            std::lock_guard lock(_texture_mutex);
+            auto&           cached_t = _texture_cache[mesh_comp->texture_path];
+            if (!cached_t.failed && cached_t.texture == INVALID_TEXTURE_HANDLE) {
+                cached_t.asset = asset()->load_image(mesh_comp->texture_path);
+                if (cached_t.asset) {
+                    texture_desc t_desc {
+                        .width  = cached_t.asset->width,
+                        .height = cached_t.asset->height,
+                        .pixels = std::span<const u8>(cached_t.asset->pixels)};
+                    cached_t.texture = _next_texture_handle.fetch_add(1);
+                    _backend->create_texture(cached_t.texture, t_desc);
+                } else {
+                    cached_t.failed = true;
+                    log()->error("renderer",
+                                 "failed to load texture '{}'; will not retry.",
+                                 mesh_comp->texture_path);
+                }
             }
+            t_handle = cached_t.texture;
         }
-        t_handle = cached_t.texture;
 
         if (m_handle != INVALID_MESH_HANDLE &&
             t_handle != INVALID_TEXTURE_HANDLE &&

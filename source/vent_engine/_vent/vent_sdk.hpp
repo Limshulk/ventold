@@ -142,17 +142,6 @@ using isize = std::ptrdiff_t;
 ///        this works on windows.
 constexpr auto CACHE_LINE = 64u;
 
-// render object handles.
-// todo: can we remove them from here?
-using pipeline_handle                             = u64;
-constexpr pipeline_handle INVALID_PIPELINE_HANDLE = 0;
-
-using mesh_handle                         = u64;
-constexpr mesh_handle INVALID_MESH_HANDLE = 0;
-
-using texture_handle                            = u64;
-constexpr texture_handle INVALID_TEXTURE_HANDLE = 0;
-
 }  // namespace vent
 
 // --- engine entry point ---

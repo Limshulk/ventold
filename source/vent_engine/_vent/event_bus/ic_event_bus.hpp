@@ -49,6 +49,23 @@ constexpr subscription_id INVALID_SUBSCRIPTION = 0;
 
 /// @brief client-facing event bus interface.
 /// provides publish/subscribe functionality for decoupled communication.
+///
+/// concurrency contract (read before subscribing):
+/// - callbacks run on job-system worker threads, NOT the publisher's thread.
+/// - callbacks for one event may run concurrently with each other and in any
+///   order; two sequential publish() calls provide no ordering guarantee.
+/// - unsubscribe() removes the subscription but does NOT wait for a callback
+///   that is already in flight — a callback snapshotted microseconds earlier can
+///   still be running after unsubscribe() returns. do not free state a callback
+///   captures immediately after unsubscribing (an unsubscribe_and_wait() will be
+///   added when the async asset/shutdown paths need it).
+/// - callbacks must be thread-safe with respect to whatever they touch.
+/// - deadlock warning: platform events (window.created / window.destroyed) are
+///   published with publish_wait() FROM the platform thread. a subscriber to
+///   those events must not call any window method that marshals back to the
+///   platform thread (set_title, resize, show, ...): the platform thread would
+///   block waiting for the callback while the callback blocks waiting for the
+///   platform thread.
 class ic_event_bus {
 public:
     virtual ~ic_event_bus() = default;

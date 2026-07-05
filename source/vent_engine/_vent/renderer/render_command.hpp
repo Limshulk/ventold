@@ -8,6 +8,7 @@
 // abstraction used by the frontend to batch rendering commands.
 
 #include <_vent/vent_sdk.hpp>
+#include <_vent/renderer/handles.hpp>
 #include <_vent/renderer/vertex.hpp>
 
 #include <algorithm>
@@ -29,10 +30,12 @@ struct render_packet {
     sort_key
         key;  ///< 0x00-0x08 (8b): 64-bit sort key for depth/pipeline sorting.
     mesh_handle mesh;  ///< 0x08-0x10 (8b): opaque handle to the mesh to draw.
-    texture_handle texture; ///< 0x10-0x18 (8b): handle to the texture to bind.
-    pipeline_handle pipeline; ///< 0x18-0x20 (8b): handle to the graphics pipeline.
-    math::mat4 transform; ///< 0x20-0x60 (64b): the model-to-world transform.
+    texture_handle texture;  ///< 0x10-0x18 (8b): handle to the texture to bind.
+    pipeline_handle
+               pipeline;   ///< 0x18-0x20 (8b): handle to the graphics pipeline.
+    math::mat4 transform;  ///< 0x20-0x60 (64b): the model-to-world transform.
 };
+static_assert(sizeof(render_packet) == 96);
 
 // a thread-local list of rendering commands.
 // buffers commands lock-free and can be sorted efficiently before backend
@@ -44,7 +47,11 @@ public:
 
     VENT_NO_COPY_MOVE(command_list)
 
-    VENT_INLINE auto draw_mesh(pipeline_handle pipeline, texture_handle texture, mesh_handle mesh, const math::mat4& transform, sort_key key = 0) -> void {
+    VENT_INLINE auto draw_mesh(pipeline_handle   pipeline,
+                               texture_handle    texture,
+                               mesh_handle       mesh,
+                               const math::mat4& transform,
+                               sort_key          key = 0) -> void {
         _packets.push_back({key, mesh, texture, pipeline, transform});
     }
 

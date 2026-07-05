@@ -92,10 +92,15 @@ auto asset_system::read_binary_file(std::string_view virtual_path) const
 auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
 
     std::string path_str(virtual_path);
-    auto        it = _shader_cache.find(path_str);
-    if (it != _shader_cache.end()) {
-        log()->trace("asset", "shader '{}' found in cache.", virtual_path);
-        return it->second.get();
+
+    // first check under the lock (this path was previously unsynchronized while
+    // load_image/load_model already locked — an inconsistent half-guard).
+    {
+        std::lock_guard lock(_shader_mutex);
+        if (auto it = _shader_cache.find(path_str); it != _shader_cache.end()) {
+            log()->trace("asset", "shader '{}' found in cache.", virtual_path);
+            return it->second.get();
+        }
     }
 
     log()->trace("asset",
@@ -121,6 +126,14 @@ auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
 
     asset->spirv_bytecode.resize(bytecode.size() / sizeof(u32));
     std::memcpy(asset->spirv_bytecode.data(), bytecode.data(), bytecode.size());
+
+    std::lock_guard lock(_shader_mutex);
+    // double-checked insert: another thread may have loaded the same shader
+    // while we read from disk. if so, return the existing entry and let our copy
+    // be discarded, so we never hand back a pointer we're about to overwrite.
+    if (auto it = _shader_cache.find(path_str); it != _shader_cache.end()) {
+        return it->second.get();
+    }
 
     shader_asset* ptr       = asset.get();
     _shader_cache[path_str] = std::move(asset);
@@ -185,10 +198,19 @@ auto asset_system::load_image(std::string_view virtual_path) -> image_asset* {
     stbi_image_free(pixels);
 
     std::lock_guard lock(_image_mutex);
+    // double-checked insert: if another thread decoded the same image while we
+    // were decoding, return theirs and drop ours. the previous code did an
+    // unconditional _image_cache[path] = std::move(asset), which would destroy
+    // the first thread's asset while it still held a raw pointer to it — a
+    // classic check-then-act (toctou) use-after-free.
+    if (auto it = _image_cache.find(path); it != _image_cache.end()) {
+        return it->second.get();
+    }
+    image_asset* ptr   = asset.get();
     _image_cache[path] = std::move(asset);
     log()->trace(
         "asset", "loaded image '{}' ({}x{})", virtual_path, width, height);
-    return _image_cache[path].get();
+    return ptr;
 }
 
 auto asset_system::release_image(image_asset* asset) -> void {
@@ -250,8 +272,8 @@ auto asset_system::load_model(std::string_view virtual_path) -> model_asset* {
 
             if (index.texcoord_index >= 0) {
                 vertex.u = attrib.texcoords[2 * index.texcoord_index + 0];
-                // Vulkan uses 0 at top and 1 at bottom, OBJ uses 0 at bottom
-                // and 1 at top
+                // flip v: vulkan's texture origin is top-left (0 at top, 1 at
+                // bottom) while obj's is bottom-left, so we invert the axis.
                 vertex.v =
                     1.0f - attrib.texcoords[2 * index.texcoord_index + 1];
             }
@@ -269,13 +291,20 @@ auto asset_system::load_model(std::string_view virtual_path) -> model_asset* {
     }
 
     std::lock_guard lock(_model_mutex);
+    // double-checked insert (see load_image for the toctou rationale): if the
+    // model appeared in the cache while we parsed the obj, return the existing
+    // entry rather than overwriting and dangling the first caller's pointer.
+    if (auto it = _model_cache.find(path); it != _model_cache.end()) {
+        return it->second.get();
+    }
+    model_asset* ptr   = asset.get();
     _model_cache[path] = std::move(asset);
     log()->trace("asset",
                  "loaded model '{}' ({} vertices, {} indices)",
                  virtual_path,
-                 _model_cache[path]->vertices.size(),
-                 _model_cache[path]->indices.size());
-    return _model_cache[path].get();
+                 ptr->vertices.size(),
+                 ptr->indices.size());
+    return ptr;
 }
 
 auto asset_system::release_model(model_asset* asset) -> void {

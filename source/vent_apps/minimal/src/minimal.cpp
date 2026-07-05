@@ -22,7 +22,8 @@ public:
         static constexpr std::string_view deps[] = {
             vent::ic_platform::system_name,
             vent::ic_renderer::system_name,
-            vent::ic_asset::system_name};
+            vent::ic_asset::system_name,
+            vent::ic_world::system_name};
         return deps;
     }
 
@@ -82,8 +83,15 @@ public:
             desc.height   = 1080;
             desc.style    = vent::window_style::standard;
             desc.renderer = vent::renderer_api::vulkan;
-            _windows.push_back(vent::platform()->create_window(desc));
-            _windows.back()->show();
+            // create_window can fail (returns nullptr). only track & show it if
+            // it actually succeeded, matching the null check in on_initialize.
+            if (auto* delayed = vent::platform()->create_window(desc)) {
+                _windows.push_back(delayed);
+                delayed->show();
+            } else {
+                vent::log()->error("client",
+                                   "failed to create delayed window.");
+            }
         }
 
         // update entity transform
@@ -98,8 +106,23 @@ public:
                                 vent::math::vec3(0.0f, 0.0f, 0.0f),
                                 vent::math::vec3(0.0f, 0.0f, 1.0f));
 
+        // derive the aspect ratio from the main window's actual framebuffer
+        // instead of hardcoding 1280/720. note: the camera is still global here,
+        // so auxiliary windows of a different size are stretched — this is
+        // resolved properly once the renderer owns per-window cameras (roadmap
+        // s-1 / 1.2). guard against a 0-height framebuffer (minimized) to avoid
+        // a division by zero producing NaNs in the projection.
+        float aspect = 16.0f / 9.0f;
+        if (!_windows.empty() && _windows.front() != nullptr) {
+            const vent::u32 fb_w = _windows.front()->get_framebuffer_width();
+            const vent::u32 fb_h = _windows.front()->get_framebuffer_height();
+            if (fb_h > 0) {
+                aspect = static_cast<float>(fb_w) / static_cast<float>(fb_h);
+            }
+        }
+
         vent::math::mat4 proj = vent::math::perspective(
-            vent::math::radians(45.0f), 1280.0f / 720.0f, 0.1f, 10.0f);
+            vent::math::radians(45.0f), aspect, 0.1f, 10.0f);
 
         vent::renderer()->set_camera(view, proj);
 

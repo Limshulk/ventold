@@ -47,15 +47,12 @@ public:
     /// @brief recreate the swapchain.
     auto recreate() -> bool;
 
-    /// @brief get the maximum number of frames in flight.
+    /// @brief get the number of frames in flight this swapchain is configured
+    /// for (a cpu-side constant, not the swapchain image count).
     [[nodiscard]]
     auto get_frames_in_flight() const -> u32 {
         return _max_frames_in_flight;
     }
-
-    /// @brief change the number of frames in flight at runtime.
-    /// this will force a complete swapchain recreation.
-    auto set_frames_in_flight(u32 count) -> void;
 
     /// @brief acquire the next image from the swapchain to begin rendering.
     auto begin_frame() -> bool;

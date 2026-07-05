@@ -11,3 +11,8 @@ vent_create_module(
         core
         log
 )
+
+# the asset module is the only consumer of stb / tinyobjloader. include them
+# PRIVATE here (not globally in vent_module.cmake) so these third-party headers
+# do not leak into other modules or the sdk surface.
+target_include_directories(vent_asset PRIVATE "${VENT_ENGINE_DIR}/third_party")

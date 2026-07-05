@@ -111,6 +111,15 @@ auto main_loop::run() -> int {
         _delta_time = std::chrono::duration<f64>(now - _last_time).count();
         _last_time  = now;
 
+        // clamp the delta to guard against spikes: the very first frame, a
+        // breakpoint pause under a debugger, or a long stall would otherwise
+        // hand gameplay/physics a huge dt and teleport everything. 100ms (10fps)
+        // is a sane ceiling — below that the sim slows down rather than explodes.
+        constexpr f64 max_delta = 0.1;
+        if (_delta_time > max_delta) {
+            _delta_time = max_delta;
+        }
+
         // update all runnables.
         for (auto* runnable : _runnables) {
             runnable->on_update(_delta_time);

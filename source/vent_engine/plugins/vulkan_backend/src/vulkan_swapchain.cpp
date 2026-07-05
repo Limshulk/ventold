@@ -64,17 +64,6 @@ vulkan_swapchain::~vulkan_swapchain() {
     _surface.clear();
 }
 
-auto vulkan_swapchain::set_frames_in_flight(u32 count) -> void {
-    log()->trace("vulkan", "set_frames_in_flight to {}", count);
-    if (count == 0)
-        return;
-    if (_max_frames_in_flight != count) {
-        _max_frames_in_flight = count;
-        // trigger recreation
-        _needs_recreation = true;
-    }
-}
-
 auto vulkan_swapchain::wait_for_fences() -> void {
     log()->trace("vulkan", "waiting for fences");
     std::vector<vk::Fence> raw_fences;
@@ -282,17 +271,6 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
         *_render_finished_semaphores[_current_image_index];
     vk::SwapchainKHR swapchain_handle = *_swapchain;
 
-    if (FILE* f = fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
-        fprintf(
-            f,
-            "end_frame submit frame=%u image=%u wait_sem=%p signal_sem=%p\n",
-            _current_frame,
-            _current_image_index,
-            (void*) static_cast<VkSemaphore>(wait_sem),
-            (void*) static_cast<VkSemaphore>(signal_sem));
-        fclose(f);
-    }
-
     vk::SubmitInfo submit_info {};
     submit_info.setWaitSemaphores(wait_sem);
     submit_info.setWaitDstStageMask(wait_stages);
@@ -309,10 +287,6 @@ auto vulkan_swapchain::end_frame(const vk::raii::Queue& graphics_queue,
 
     try {
         auto present_res = present_queue.presentKHR(present_info);
-        if (FILE* f = fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
-            fprintf(f, "present returned %d\n", (int) present_res);
-            fclose(f);
-        }
         if (present_res == vk::Result::eErrorOutOfDateKHR ||
             present_res == vk::Result::eSuboptimalKHR) {
             _needs_recreation = true;
@@ -413,11 +387,17 @@ auto vulkan_swapchain::create_swapchain() -> bool {
     }
 
     try {
-        _swapchain            = vk::raii::SwapchainKHR(_device, create_info);
-        _image_format         = surface_format.format;
-        _extent               = extent;
-        _images               = _swapchain.getImages();
-        _max_frames_in_flight = static_cast<u32>(_images.size());
+        _swapchain    = vk::raii::SwapchainKHR(_device, create_info);
+        _image_format = surface_format.format;
+        _extent       = extent;
+        _images       = _swapchain.getImages();
+        // note: we intentionally do NOT set _max_frames_in_flight from
+        // _images.size() here. frames-in-flight is a cpu-throttling constant
+        // (chosen by the backend via MAX_FRAMES_IN_FLIGHT), independent of the
+        // driver-selected image count. overwriting it made the cpu frame count
+        // driver-dependent and could index the fixed-size per-frame arrays out
+        // of bounds on gpus that return 4+ images. per-image resources are sized
+        // off _images.size() separately (see create_sync_objects).
     } catch (const vk::SystemError& err) {
         log()->error("vulkan", "failed to create swapchain: {}", err.what());
         return false;
@@ -487,29 +467,11 @@ auto vulkan_swapchain::create_sync_objects() -> bool {
         for (u32 i = 0; i < _max_frames_in_flight; ++i) {
             _image_available_semaphores.push_back(
                 vk::raii::Semaphore(_device, semaphore_info));
-            if (FILE* f =
-                    fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
-                fprintf(f,
-                        "created image_sem[%u] = %p\n",
-                        i,
-                        (void*) static_cast<VkSemaphore>(
-                            *_image_available_semaphores.back()));
-                fclose(f);
-            }
             _in_flight_fences.push_back(vk::raii::Fence(_device, fence_info));
         }
         for (u32 i = 0; i < _images.size(); ++i) {
             _render_finished_semaphores.push_back(
                 vk::raii::Semaphore(_device, semaphore_info));
-            if (FILE* f =
-                    fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
-                fprintf(f,
-                        "created signal_sem[%u] = %p\n",
-                        i,
-                        (void*) static_cast<VkSemaphore>(
-                            *_render_finished_semaphores.back()));
-                fclose(f);
-            }
         }
     } catch (const vk::SystemError& err) {
         log()->error("vulkan", "failed to create sync objects: {}", err.what());
@@ -523,10 +485,6 @@ auto vulkan_swapchain::recreate() -> bool {
                 "swapchain recreation for window '{}' started.",
                 _window->get_title());
 
-    if (FILE* f = fopen("C:\\dev\\vent\\build\\vulkan_debug.txt", "a")) {
-        fprintf(f, "recreate() called for swapchain\n");
-        fclose(f);
-    }
     log()->trace(
         "vulkan", "swapchain recreation: log written.", _window->get_title());
     _device.waitIdle();

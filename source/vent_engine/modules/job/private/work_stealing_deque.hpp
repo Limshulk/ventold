@@ -11,8 +11,6 @@
 // in DEBUG mode, checks are performed to ensure only the owner thread calls
 //   push/pop methods.
 
-#pragma once
-
 #include <_vent/vent_sdk.hpp>
 
 #include <core/containers/circular_array.hpp>
@@ -157,12 +155,18 @@ public:
         if (t <= b) [[likely]] {
             T item = a->get(b);
             if (t == b) [[unlikely]] {
-                // last item, might race with thieves.
+                // last item, might race with thieves. if the cas fails a thief
+                // took this exact item, so we own nothing: report empty via
+                // nullopt rather than returning a default-constructed T{} (which
+                // for job_t* is a null pointer the caller would treat as a real
+                // job and dereference/skip a work-check on). either way bottom
+                // is restored to b+1 to reflect the now-empty deque.
                 if (!_top.compare_exchange_strong(t,
                                                   t + 1,
                                                   std::memory_order_seq_cst,
                                                   std::memory_order_relaxed)) {
-                    item = T {};
+                    _bottom.store(b + 1, std::memory_order_relaxed);
+                    return std::nullopt;
                 }
                 _bottom.store(b + 1, std::memory_order_relaxed);
             }

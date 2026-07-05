@@ -158,13 +158,21 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
         regular_systems.clear();
         for (const auto& [name, entry] : _systems) {
             if (!dynamic_cast<ir_bootstrap*>(entry.instance.get()) &&
-                entry.state == system_state::pending) {
+                entry.state.load(std::memory_order_acquire) ==
+                    system_state::pending) {
                 regular_systems.push_back(name);
                 log()->trace("system_registry", "  - rs: {}.", name);
-                if (!_system_to_plugin[name].empty())
+                // use find() rather than operator[] here: operator[] would
+                // insert an empty entry for every non-plugin system, silently
+                // growing _system_to_plugin with junk. also take the tracking
+                // mutex — this map is written from plugin-load job threads.
+                std::lock_guard lock(_plugin_tracking_mutex);
+                if (auto it = _system_to_plugin.find(name);
+                    it != _system_to_plugin.end() && !it->second.empty()) {
                     log()->trace("system_registry",
                                  "    from plugin: {}.",
-                                 _system_to_plugin[name]);
+                                 it->second);
+                }
             }
         }
 
@@ -245,14 +253,15 @@ auto system_registry::shutdown_all() -> void {
             log()->trace("system_registry",
                          "shutdown_all(): system '{}' shutdown complete.",
                          name);
-            entry.state = system_state::pending;
+            entry.state.store(system_state::pending, std::memory_order_release);
         }
     }
 
     // shutdown partially initialized systems (awaiting events but never
     // completed). should not happen, i don't even know if it works.
     for (auto& [name, entry] : _systems) {
-        if (entry.state == system_state::awaiting_event) {
+        if (entry.state.load(std::memory_order_acquire) ==
+            system_state::awaiting_event) {
             for (auto& [event_name, sub_id] : entry.event_subscriptions) {
                 if (_event) {
                     _event->unsubscribe(sub_id);
@@ -389,7 +398,8 @@ auto system_registry::initialize_plugin_systems(std::string_view plugin_name)
         for (const auto& [sys_name, src_plugin] : _system_to_plugin) {
             if (src_plugin == plugin_name) {
                 if (_systems.contains(sys_name) &&
-                    _systems[sys_name].state == system_state::pending) {
+                    _systems[sys_name].state.load(std::memory_order_acquire) ==
+                        system_state::pending) {
                     new_system_names.push_back(sys_name);
                 }
             }
@@ -566,7 +576,7 @@ auto system_registry::mark_system_ready(const std::string& name) -> void {
         return;
 
     // mark as ready.
-    it->second.state = system_state::ready;
+    it->second.state.store(system_state::ready, std::memory_order_release);
 
     // add to init order (thread-safe — may be called from job threads).
     {
@@ -590,7 +600,7 @@ auto system_registry::mark_system_failed(const std::string& name) -> void {
     if (it == _systems.end())
         return;
 
-    it->second.state = system_state::failed;
+    it->second.state.store(system_state::failed, std::memory_order_release);
 
     log()->error("system_registry",
                  "system '{}' failed to initialize. publishing failure event.",

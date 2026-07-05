@@ -126,6 +126,14 @@ public:
     }
 
     /// @brief cleanly exit the current thread. called from inside the thread.
+    /// @note this is intentional and load-bearing: on this toolchain, simply
+    /// returning from the thread lambda was observed to hang/mis-behave on
+    /// teardown, and an explicit os-level thread exit was the only reliable
+    /// fix. keep it.
+    // todo: revisit once the root cause (likely a static/tls destructor
+    // ordering issue across the engine dll boundary) is understood -
+    // exit_thread() skips c++ stack unwinding, so the thread lambda's captures
+    // are not destroyed (an accepted trade-off for now).
     static void exit_thread() {
 #ifdef VENT_WINDOWS
         ExitThread(0);

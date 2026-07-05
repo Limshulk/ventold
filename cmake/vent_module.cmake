@@ -89,8 +89,10 @@ function(vent_create_module)
     # sdk headers.
     target_include_directories(${TARGET_NAME} PUBLIC "${VENT_ENGINE_DIR}")
 
-    # third_party headers (available to all modules).
-    target_include_directories(${TARGET_NAME} PUBLIC "${VENT_ENGINE_DIR}/third_party")
+    # note: third_party/ is intentionally NOT added here. leaking stb /
+    # tinyobjloader into every module (and the sdk surface) violates the
+    # sdk-minimal rule. modules that actually need a third_party header add it
+    # PRIVATE in their own CMakeLists (see modules/asset).
 
     # this module's public headers.
     target_include_directories(${TARGET_NAME} PUBLIC

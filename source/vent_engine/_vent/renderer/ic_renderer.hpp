@@ -9,13 +9,10 @@
 // without exposing backend-specific details (like vulkan or directx).
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/renderer/vertex.hpp>
 #include <_vent/renderer/pipeline_desc.hpp>
 #include <_vent/renderer/render_command.hpp>
 #include <_vent/renderer/texture_desc.hpp>
-
-#include <memory>
-#include <span>
+#include <_vent/renderer/vertex.hpp>
 
 namespace vent {
 
@@ -29,15 +26,6 @@ public:
     virtual ~ic_renderer() = default;
 
     static constexpr std::string_view system_name = "vent.system.renderer";
-    // --- configuration ---
-    // —————————————————————————————————————————————————————————————————————————
-
-    /// @brief set the number of frames in flight for a specific window.
-    /// this will trigger a swapchain recreation on the backend.
-    /// @param window the window to configure.
-    /// @param frames the number of frames in flight (typically 2 or 3).
-    virtual auto set_frames_in_flight(ic_window* window, u32 frames)
-        -> void = 0;
 
     // --- render loop ---
     // —————————————————————————————————————————————————————————————————————————
@@ -58,7 +46,8 @@ public:
     /// @brief set the global camera matrices for the current frame.
     /// @param view the view matrix.
     /// @param proj the projection matrix.
-    virtual auto set_camera(const math::mat4& view, const math::mat4& proj) -> void = 0;
+    virtual auto set_camera(const math::mat4& view, const math::mat4& proj)
+        -> void = 0;
 };
 
 }  // namespace vent

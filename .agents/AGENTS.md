@@ -152,3 +152,7 @@ vent/                       # root folder
   1. build the project.
   2. fix all compiler errors.
   3. check for warnings in modified code.
+  4. give a summary over all changes made: 
+     1. what was wrong / missing.
+     2. what have you done / what is implemented now.
+     3. what can i learn by that implementation / what is the message.

@@ -56,13 +56,11 @@ private:
     // --- internal types ---
     // —————————————————————————————————————————————————————————————————————————
 
-    /// @brief internal subscription struct stored for each subscrption
-    /// registrated.
+    /// @brief internal subscription struct stored for each subscription.
     struct subscription {
         subscription_id id;        ///< unique subscription id.
         std::string     event;     ///< event name (copy, not to be changed).
         event_callback  callback;  ///< callback function when event publishes.
-        bool            valid;  ///< false if unsubscribed (for lazy cleanup).
     };
 
     // --- member variables ---
@@ -82,13 +80,6 @@ private:
 
     /// @brief true if system is ready to be used.
     bool _initialized = false;
-
-    /// @brief count of published events since last cleanup. used to trigger
-    /// periodic cleanup of invalid subscriptions.
-    u32 _publish_count_after_cleanup = 0;  // todo: atomic?
-
-    /// @brief interval of publish calls to trigger cleanup.
-    u32 _cleanup_interval = 1000;  // todo: make this configurable.
 
     // --- internal methods ---
     // —————————————————————————————————————————————————————————————————————————
@@ -144,9 +135,6 @@ private:
     /// @param event event name to dispatch.
     /// @param data opaque pointer to event-specific data.
     auto dispatch_wait(std::string_view event, void* data) -> void;
-
-    /// @brief cleanup all invalid subscriptions from the subscription lists.
-    auto cleanup_invalid_subscriptions() -> void;
 };
 
 }  // namespace vent

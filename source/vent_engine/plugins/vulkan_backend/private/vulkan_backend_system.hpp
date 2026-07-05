@@ -50,6 +50,20 @@ public:
     auto on_shutdown() -> void override { shutdown(); }
 
 private:
+    // --- tuning ---
+    // —————————————————————————————————————————————————————————————————————————
+
+    /// @brief number of frames the cpu may work ahead of the gpu.
+    /// this is the single knob for frames-in-flight — change it here to
+    /// experiment. it is deliberately decoupled from the swapchain image count
+    /// (which the driver chooses): frames-in-flight throttles the cpu, image
+    /// count buffers presentation. every cpu-side per-frame resource
+    /// (fences, acquire semaphores, per-frame command buffers, the global
+    /// uniform ring, and _pending_contexts) is sized off this value; per-image
+    /// resources (render-finished semaphores) are sized off the image count.
+    /// 2 = double buffering, the usual sweet spot.
+    static constexpr u32 MAX_FRAMES_IN_FLIGHT = 2;
+
     bool _validation_enabled = false;  ///< vulkan validation layers.
 
     // --- vulkan raii ---
@@ -105,30 +119,30 @@ private:
     };
 
     struct vulkan_texture {
-        VkImage               image      = nullptr;
-        VmaAllocation         allocation = nullptr;
-        vk::raii::ImageView   view       = nullptr;
-        vk::raii::Sampler     sampler    = nullptr;
+        VkImage             image      = nullptr;
+        VmaAllocation       allocation = nullptr;
+        vk::raii::ImageView view       = nullptr;
+        vk::raii::Sampler   sampler    = nullptr;
     };
 
-    std::unordered_map<mesh_handle, vulkan_mesh_data> _meshes;
-    std::mutex                                        _mesh_mutex;
+    std::unordered_map<mesh_handle, vulkan_mesh_data>  _meshes;
+    std::mutex                                         _mesh_mutex;
     std::unordered_map<texture_handle, vulkan_texture> _textures;
-    std::mutex                                       _texture_mutex;
+    std::mutex                                         _texture_mutex;
 
-    class vulkan_pipeline* _active_pipeline = nullptr;
-    std::unordered_map<pipeline_handle, std::unique_ptr<class vulkan_pipeline>> _pipelines;
+    std::unordered_map<pipeline_handle, std::unique_ptr<class vulkan_pipeline>>
+        _pipelines;
 
     // --- global uniforms and descriptors ---
     // —————————————————————————————————————————————————————————————————————————
-    std::vector<VkBuffer>              _global_uniform_buffers;
-    std::vector<VmaAllocation>         _global_uniform_allocations;
-    std::vector<void*>                 _global_uniform_mapped;
+    std::vector<VkBuffer>      _global_uniform_buffers;
+    std::vector<VmaAllocation> _global_uniform_allocations;
+    std::vector<void*>         _global_uniform_mapped;
 
     vk::Format _depth_format = vk::Format::eUndefined;
 
-    vk::raii::DescriptorSetLayout        _global_descriptor_set_layout = nullptr;
-    vk::raii::DescriptorPool             _descriptor_pool = nullptr;
+    vk::raii::DescriptorSetLayout _global_descriptor_set_layout = nullptr;
+    vk::raii::DescriptorPool      _descriptor_pool              = nullptr;
     std::vector<vk::raii::DescriptorSet> _global_descriptor_sets;
 
 public:
@@ -136,7 +150,8 @@ public:
     // —————————————————————————————————————————————————————————————————————————
 
     /// @brief gets the global descriptor set layout for uniforms.
-    auto get_global_descriptor_set_layout() const -> const vk::raii::DescriptorSetLayout& {
+    auto get_global_descriptor_set_layout() const
+        -> const vk::raii::DescriptorSetLayout& {
         return _global_descriptor_set_layout;
     }
 
@@ -157,12 +172,6 @@ public:
     /// @param window the window whose surface should be destroyed.
     auto destroy_surface(ic_window* window) -> void override;
 
-    /// @brief sets the maximum number of frames in flight for a window's
-    /// swapchain.
-    /// @param window the window to modify.
-    /// @param count the new frame count (e.g. 2 for double buffering).
-    auto set_frames_in_flight(ic_window* window, u32 count) -> void override;
-
     /// @brief begins a new frame for the given window.
     /// @param window the window to begin rendering for.
     /// @return true if the frame successfully began, false if skipped (e.g.
@@ -176,22 +185,21 @@ public:
     /// @brief creates a new graphics pipeline from a description.
     /// @param handle the frontend-generated handle.
     /// @param desc the pipeline descriptor.
-    auto create_graphics_pipeline(pipeline_handle handle, const pipeline_desc& desc) -> void override;
+    auto create_graphics_pipeline(pipeline_handle      handle,
+                                  const pipeline_desc& desc) -> void override;
 
     /// @brief destroys a graphics pipeline.
     /// @param handle the pipeline handle.
     auto destroy_graphics_pipeline(pipeline_handle handle) -> void override;
 
-    auto create_texture(texture_handle handle, const texture_desc& desc) -> void override;
+    auto create_texture(texture_handle handle, const texture_desc& desc)
+        -> void override;
     auto destroy_texture(texture_handle handle) -> void override;
-
-    /// @brief binds a pipeline for subsequent draw calls in the current frame.
-    /// @param handle the pipeline handle to bind.
-    auto bind_pipeline(pipeline_handle handle) -> void override;
 
     /// @brief update global uniform buffer data.
     /// @param ubo the uniform data to pass to the renderer.
-    auto update_global_uniforms(const uniform_buffer_object& ubo) -> void override;
+    auto update_global_uniforms(const uniform_buffer_object& ubo)
+        -> void override;
 
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -200,7 +208,7 @@ public:
     /// @param handle the frontend-generated handle.
     /// @param vertices the list of vertices to upload.
     /// @param indices an optional list of indices for indexed drawing.
-    auto create_mesh(mesh_handle handle,
+    auto create_mesh(mesh_handle               handle,
                      std::span<const vertex>   vertices,
                      std::span<const uint32_t> indices = {}) -> void override;
 
@@ -211,14 +219,16 @@ public:
     // --- rendering execution ---
     // —————————————————————————————————————————————————————————————————————————
 
-    /// @brief records commands for a list of render packets on a background thread.
+    /// @brief records commands for a list of render packets on a background
+    /// thread.
     /// @param chunk the chunk of draw commands to execute.
     /// @return an opaque handle to the recorded command list.
     auto record_command_chunk(std::span<const render_packet> chunk)
         -> void* override;
 
     /// @brief executes the recorded command lists on the primary command buffer.
-    /// @param command_lists span of opaque command list handles returned by record_command_chunk.
+    /// @param command_lists span of opaque command list handles returned by
+    /// record_command_chunk.
     auto execute_recorded_commands(std::span<void* const> command_lists)
         -> void override;
 
@@ -226,7 +236,10 @@ private:
     auto create_global_uniforms() -> void;
     auto destroy_global_uniforms() -> void;
 
-    auto find_supported_format(const std::vector<vk::Format>& candidates, vk::ImageTiling tiling, vk::FormatFeatureFlags features) const -> vk::Format;
+    auto find_supported_format(const std::vector<vk::Format>& candidates,
+                               vk::ImageTiling                tiling,
+                               vk::FormatFeatureFlags         features) const
+        -> vk::Format;
     auto find_depth_format() const -> vk::Format;
 
     // --- multithreading ---
@@ -238,7 +251,8 @@ private:
     std::mutex                          _context_mutex;
     std::vector<thread_command_context> _available_contexts;
     std::unordered_map<ic_window*, std::vector<thread_command_context>>
-        _pending_contexts[3];  // up to 3 frames in flight per window.
+        _pending_contexts[MAX_FRAMES_IN_FLIGHT];  // one slot per frame in
+                                                  // flight, per window.
 
     /// @brief acquires a thread-local command context for background rendering.
     /// @return a unique context containing a command pool and buffers.
@@ -263,10 +277,14 @@ private:
     /// @brief perform vulkan initialization.
     /// @return true if initialization succeeded, false if it failed.
     [[nodiscard]]
-    auto initialize() -> bool;
+    auto initialize() -> bool override;
 
     /// @brief perform vulkan shutdown and cleanup.
-    auto shutdown() -> void;
+    auto shutdown() -> void override;
+
+    /// @brief waits for all backend operations to complete and returns
+    /// afterwards.
+    auto wait_for_idle() -> void override;
 
     // --- vulkan initialization ---
 

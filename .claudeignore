@@ -4,7 +4,6 @@
 # build
 build/
 out/
-artifacts/
 
 # cmake generated files
 CMakeFiles/

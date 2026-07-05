@@ -62,8 +62,7 @@ auto event_bus_system::subscribe(std::string_view event,
     _subscriptions[event_str].push_back(
         subscription {.id       = id,
                       .event    = event_str,
-                      .callback = std::move(callback),
-                      .valid    = true});
+                      .callback = std::move(callback)});
 
     _subscription_index[id] = event_str;
 
@@ -130,22 +129,15 @@ auto event_bus_system::dispatch(std::string_view      event,
             return;
         }
 
-        // collect valid callbacks.
+        // snapshot the callbacks. unsubscribe() hard-erases entries, so every
+        // subscription still present here is live — no validity filtering.
         for (const auto& sub : it->second) {
-            if (sub.valid) {
-                callbacks.push_back(sub.callback);
-            }
+            callbacks.push_back(sub.callback);
         }
     }
 
     if (callbacks.empty()) {
         return;
-    }
-
-    // clean up invalid subscriptions periodically.
-    _publish_count_after_cleanup++;
-    if (_publish_count_after_cleanup >= _cleanup_interval) {
-        cleanup_invalid_subscriptions();
     }
 
     // fire all callbacks in parallel via job system (if available).
@@ -176,22 +168,15 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
             return;
         }
 
-        // collect valid callbacks.
+        // snapshot the callbacks (see dispatch(): all present subscriptions are
+        // live because unsubscribe() hard-erases).
         for (const auto& sub : it->second) {
-            if (sub.valid) {
-                callbacks.push_back(sub.callback);
-            }
+            callbacks.push_back(sub.callback);
         }
     }
 
     if (callbacks.empty()) {
         return;
-    }
-
-    // clean up invalid subscriptions periodically.
-    _publish_count_after_cleanup++;
-    if (_publish_count_after_cleanup >= _cleanup_interval) {
-        cleanup_invalid_subscriptions();
     }
 
     // fire all callbacks and wait for them to complete.
@@ -211,29 +196,6 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
     for (auto& t : tasks) {
         t.wait();
     }
-}
-
-auto event_bus_system::cleanup_invalid_subscriptions() -> void {
-    std::unique_lock lock(_mutex);
-
-    // iterate all event subscriptions and remove invalid ones.
-    for (auto& [event_name, subs] : _subscriptions) {
-        std::erase_if(subs, [](const subscription& sub) {
-            return !sub.valid;
-        });
-    }
-
-    // remove empty event entries.
-    for (auto it = _subscriptions.begin(); it != _subscriptions.end();) {
-        if (it->second.empty()) {
-            it = _subscriptions.erase(it);
-        } else {
-            ++it;
-        }
-    }
-
-    // reset cleanup counter.
-    _publish_count_after_cleanup = 0;
 }
 
 }  // namespace vent

@@ -85,7 +85,7 @@ public:
 
     [[nodiscard]]
     auto bootstrap_priority() const -> i32 override {
-        return -50;  // extreme high priority.
+        return -100;  // extreme high priority.
     }
 
     [[nodiscard]]

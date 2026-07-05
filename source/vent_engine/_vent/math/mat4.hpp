@@ -15,6 +15,14 @@
 namespace vent::math {
 
 /// @brief a 4x4 floating-point matrix in column-major order.
+///
+/// winding note (read before touching perspective() or the pipeline cull mode):
+/// vent uses a right-handed, z-up world/eye basis, but perspective() negates the
+/// y row to match vulkan's clip space (where +y points down). a determinant with
+/// one negated axis flips handedness, which flips the on-screen winding of every
+/// triangle. so geometry authored counter-clockwise in world space rasterizes
+/// clockwise. the vulkan pipeline is configured accordingly (frontFace =
+/// eClockwise, cullMode = eBack in vulkan_pipeline.cpp). change one, change both.
 struct mat4 {
     /// @brief column-major data [col][row].
     float data[4][4] = {{0}};
@@ -57,6 +65,10 @@ struct mat4 {
                     data[3][3] * v.w};
     }
 };
+
+// a plain 4x4 float grid with no padding. the renderer memcpy's this into
+// uniform buffers and push constants, so the exact 64-byte size is contractual.
+static_assert(sizeof(mat4) == 64, "mat4 must be a tightly packed 16 floats.");
 
 // --- transformations ---
 

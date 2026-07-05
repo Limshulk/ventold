@@ -22,7 +22,6 @@
 namespace vent {
 
 // --- forward declarations ---
-class i_device;
 class i_window;
 
 class renderer_system final
@@ -61,7 +60,6 @@ public:
     // --- ic_renderer implementation ---
     // —————————————————————————————————————————————————————————————————————————
 
-    auto set_frames_in_flight(ic_window* window, u32 frames) -> void override;
     auto begin_frame(ic_window* window) -> bool override;
     auto end_frame(ic_window* window) -> void override;
 
@@ -70,13 +68,16 @@ public:
 
 private:
     struct cached_model {
-        model_asset* asset = nullptr;
-        mesh_handle  mesh  = INVALID_MESH_HANDLE;
+        model_asset* asset  = nullptr;
+        mesh_handle  mesh   = INVALID_MESH_HANDLE;
+        bool         failed = false;  ///< true if a load attempt failed; skip
+                                      ///< re-loading it every frame.
     };
 
     struct cached_texture {
         image_asset*   asset   = nullptr;
         texture_handle texture = INVALID_TEXTURE_HANDLE;
+        bool           failed  = false;  ///< true if a load attempt failed.
     };
 
     std::unordered_map<std::string, cached_model>   _model_cache;
@@ -105,7 +106,6 @@ private:
     std::atomic<u64> _next_pipeline_handle {1};
     std::atomic<u64> _next_mesh_handle {1};
     std::atomic<u64> _next_texture_handle {1};
-    i_device*        _device = nullptr;  ///< gpu device.
 
 
 private:

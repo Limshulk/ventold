@@ -95,12 +95,19 @@ vulkan_pipeline::vulkan_pipeline(
                                                         .scissorCount  = 1};
 
     // rasterizer.
+    // backface culling. we render with our right-handed z-up world basis and a
+    // projection that flips y for vulkan's clip space (see math/mat4.hpp). that
+    // y-flip reverses the apparent winding of triangles on screen, so a triangle
+    // authored counter-clockwise in world space presents as clockwise after
+    // projection. we therefore declare clockwise as the front face and cull the
+    // back. (eNone was a temporary workaround that shaded both sides and hid
+    // winding bugs — culling is cheaper and surfaces such bugs early.)
     vk::PipelineRasterizationStateCreateInfo rasterizer {
         .depthClampEnable        = false,
         .rasterizerDiscardEnable = false,
         .polygonMode             = vk::PolygonMode::eFill,
-        .cullMode                = vk::CullModeFlagBits::eNone,
-        .frontFace               = vk::FrontFace::eCounterClockwise,
+        .cullMode                = vk::CullModeFlagBits::eBack,
+        .frontFace               = vk::FrontFace::eClockwise,
         .depthBiasEnable         = false,
         .lineWidth               = 1.0f};
 
