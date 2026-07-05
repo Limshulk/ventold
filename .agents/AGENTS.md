@@ -142,3 +142,13 @@ vent/                       # root folder
       plugins/                  # engine plugins.
       templates/                # source templates that are copied to the public sdk.
 ```
+
+# Workflow
+
+- before changing code, first understand the existing implementation.
+- for changes affecting multiple systems, propose a plan before editing.
+- never rewrite large parts of the engine unless explicitly requested.
+- after implementing changes:
+  1. build the project.
+  2. fix all compiler errors.
+  3. check for warnings in modified code.

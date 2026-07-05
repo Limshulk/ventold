@@ -9,6 +9,8 @@
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/asset/shader.hpp>
+#include <_vent/asset/image.hpp>
+#include <_vent/asset/model.hpp>
 
 #include <string>
 #include <string_view>
@@ -45,10 +47,17 @@ public:
 
     /// @brief loads an image from a virtual path.
     virtual auto load_image(std::string_view virtual_path)
-        -> class image_asset* = 0;
+        -> image_asset* = 0;
 
     /// @brief releases an image from the cache.
-    virtual auto release_image(class image_asset* asset) -> void = 0;
+    virtual auto release_image(image_asset* asset) -> void = 0;
+
+    /// @brief loads a 3d model from a virtual path (e.g. .obj).
+    virtual auto load_model(std::string_view virtual_path)
+        -> model_asset* = 0;
+
+    /// @brief releases a 3d model from the cache.
+    virtual auto release_model(model_asset* asset) -> void = 0;
 };
 
 }  // namespace vent

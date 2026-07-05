@@ -1142,6 +1142,20 @@ auto vulkan_backend_system::record_command_chunk(
             vk::DeviceSize offset = 0;
             cmd->bindVertexBuffers(0, {data.buffer}, {offset});
 
+            cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
+                              _pipelines.at(packet.pipeline)->get_pipeline());
+            cmd->bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics,
+                _pipelines.at(packet.pipeline)->get_pipeline_layout(),
+                0,
+                {*_global_descriptor_sets[current_frame]},
+                {});
+            cmd->pushConstants<math::mat4>(
+                _pipelines.at(packet.pipeline)->get_pipeline_layout(),
+                vk::ShaderStageFlagBits::eVertex,
+                0,
+                packet.transform);
+
             if (data.index_buffer) {
                 cmd->bindIndexBuffer(
                     data.index_buffer, 0, vk::IndexType::eUint32);

@@ -1,0 +1,68 @@
+# third-party libraries
+**/third_party/
+
+# build
+build/
+out/
+artifacts/
+
+# cmake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+rules.ninja
+TargetDirectories.txt
+InstallScripts.json
+
+# compiled objects and libraries
+*.o
+*.obj
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+*.out
+*.pdb
+*.ilk
+*.exp
+
+# compiled shaders
+*.spv
+*.dxil
+
+# logs
+logs/
+*.log
+
+# runtime files
+*.tmp
+*~
+
+# os files
+.DS_Store
+Thumbs.db
+
+# editor files
+*.swp
+*.swo
+*.bak
+*.clang-format
+*.clangd
+
+# python caches
+__pycache__/
+*.pyc
+
+# ide files
+.vs/
+.idea/
+*.iml
+*.vcxproj*
+*.sln
+*.suo
+*.user
+*.userosscache
+
+# git internals
+.git/

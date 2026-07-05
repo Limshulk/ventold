@@ -7,10 +7,10 @@
 #include <renderer.hpp>
 
 #include <_vent/accessors.hpp>
+#include <_vent/renderer/uniform_buffer.hpp>
 
 #include <core/interfaces/i_system_registry.hpp>
 #include <core/system/registration.hpp>
-
 
 #include <platform/interfaces/i_window.hpp>
 
@@ -143,6 +143,31 @@ auto renderer_system::shutdown() -> void {
 
     // destroy surfaces before backend is shut down.
     if (_backend) {
+        {
+            std::lock_guard lock(_model_mutex);
+            for (auto& [path, cached_m] : _model_cache) {
+                if (cached_m.mesh != INVALID_MESH_HANDLE) {
+                    _backend->destroy_mesh(cached_m.mesh);
+                }
+            }
+            _model_cache.clear();
+        }
+
+        {
+            std::lock_guard lock(_texture_mutex);
+            for (auto& [path, cached_t] : _texture_cache) {
+                if (cached_t.texture != INVALID_TEXTURE_HANDLE) {
+                    _backend->destroy_texture(cached_t.texture);
+                }
+            }
+            _texture_cache.clear();
+        }
+
+        if (_default_pipeline != INVALID_PIPELINE_HANDLE) {
+            _backend->destroy_graphics_pipeline(_default_pipeline);
+            _default_pipeline = INVALID_PIPELINE_HANDLE;
+        }
+
         std::lock_guard lock(_windows_mutex);
         for (auto* w : _windows) {
             _backend->destroy_surface(static_cast<ic_window*>(w));
@@ -169,137 +194,121 @@ auto renderer_system::begin_frame(ic_window* window) -> bool {
     return false;
 }
 
+auto renderer_system::set_camera(const math::mat4& view, const math::mat4& proj)
+    -> void {
+    _view_matrix = view;
+    _proj_matrix = proj;
+}
+
 auto renderer_system::end_frame(ic_window* window) -> void {
-    if (_backend) {
-        _backend->end_frame(window);
-    }
-}
-
-auto renderer_system::create_graphics_pipeline(const pipeline_desc& desc)
-    -> pipeline_handle {
-    log()->trace("renderer", "creating graphics pipeline");
-    if (!_backend) return INVALID_PIPELINE_HANDLE;
-    pipeline_handle handle { _next_pipeline_handle.fetch_add(1) };
-    _backend->create_graphics_pipeline(handle, desc);
-    return handle;
-}
-
-auto renderer_system::destroy_graphics_pipeline(pipeline_handle handle) -> void {
-    if (_backend && handle != INVALID_PIPELINE_HANDLE) {
-        _backend->destroy_graphics_pipeline(handle);
-    }
-}
-
-// --- textures ---
-
-auto renderer_system::create_texture(const texture_desc& desc) -> texture_handle {
-    texture_handle handle { _next_texture_handle.fetch_add(1) };
-    _backend->create_texture(handle, desc);
-    return handle;
-}
-
-auto renderer_system::destroy_texture(texture_handle handle) -> void {
-    _backend->destroy_texture(handle);
-}
-
-// --- meshes ---
-
-auto renderer_system::bind_pipeline(pipeline_handle handle) -> void {
-    if (_backend) {
-        _backend->bind_pipeline(handle);
-    }
-}
-
-auto renderer_system::update_global_uniforms(const uniform_buffer_object& ubo) -> void {
-    if (_backend) {
-        _backend->update_global_uniforms(ubo);
-    }
-}
-
-auto renderer_system::create_mesh(std::span<const vertex>   vertices,
-                                  std::span<const uint32_t> indices)
-    -> mesh_handle {
-    log()->trace("renderer", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
-    if (!_backend || vertices.empty())
-        return INVALID_MESH_HANDLE;
-    mesh_handle handle { _next_mesh_handle.fetch_add(1) };
-    _backend->create_mesh(handle, vertices, indices);
-    return handle;
-}
-
-auto renderer_system::destroy_mesh(mesh_handle handle) -> void {
-    if (_backend && handle != INVALID_MESH_HANDLE) {
-        _backend->destroy_mesh(handle);
-    }
-}
-
-auto renderer_system::get_command_list() -> command_list& {
-    thread_local command_list tls_cmd_list;
-    return tls_cmd_list;
-}
-
-auto renderer_system::submit_command_lists(std::span<command_list* const> lists) -> void {
-    if (!_backend) return;
-
-    usize total_packets = 0;
-    for (auto* list : lists) {
-        list->sort();
-        usize count = list->get_packets().size();
-        total_packets += count;
-    }
-
-    std::vector<render_packet> all_packets;
-    all_packets.reserve(total_packets);
-    for (auto* list : lists) {
-        auto packets = list->get_packets();
-        all_packets.insert(all_packets.end(), packets.begin(), packets.end());
-    }
-
-    std::ranges::sort(all_packets, [](const render_packet& a, const render_packet& b) {
-        return a.key < b.key;
-    });
-
-    if (all_packets.empty()) {
-        for (auto* list : lists) {
-            list->clear();
-        }
+    if (!_backend || !world()) {
+        if (_backend)
+            _backend->end_frame(window);
         return;
     }
 
-    // chunk packets.
-    // we divide the massive list of draw commands into smaller manageable
-    // chunks. a chunk size of 256 is a reasonable default for keeping thread
-    // overhead low while maximizing parallelism.
-    const usize chunk_size = 256;
-    const usize num_chunks = (all_packets.size() + chunk_size - 1) / chunk_size;
-
-    std::vector<vent::task> tasks;
-    tasks.reserve(num_chunks);
-
-    // spawn a job for every chunk. the job system will distribute these
-    // across all available cpu cores dynamically.
-    for (usize i = 0; i < num_chunks; ++i) {
-        usize start = i * chunk_size;
-        usize end   = (std::min) (start + chunk_size, all_packets.size());
-        auto  chunk = std::span<const render_packet>(all_packets.data() + start, end - start);
-
-        tasks.push_back(job()->submit([this, chunk]() -> void* {
-            return _backend->record_command_chunk(chunk);
-        }));
+    // 1. initialize default pipeline if not done yet
+    if (_default_pipeline == INVALID_PIPELINE_HANDLE) {
+        _default_shader =
+            asset()->load_shader("app://assets/shaders/shader.slang.spv");
+        if (_default_shader) {
+            pipeline_desc p_desc;
+            p_desc.shader     = _default_shader;
+            _default_pipeline = _next_pipeline_handle.fetch_add(1);
+            _backend->create_graphics_pipeline(_default_pipeline, p_desc);
+        }
     }
 
-    // wait for all jobs to finish and gather command buffers.
-    std::vector<void*> secondary_cmds;
-    secondary_cmds.reserve(num_chunks);
-    for (auto& task : tasks) {
-        secondary_cmds.push_back(task.get<void*>());
+    // 2. update global uniforms (camera)
+    uniform_buffer_object ubo = {.view = _view_matrix, .proj = _proj_matrix};
+    _backend->update_global_uniforms(ubo);
+
+    // 3. fetch entities and build command list
+    _command_list.clear();
+    auto entities = world()->get_renderable_entities();
+
+    for (entity e : entities) {
+        const auto* mesh_comp  = world()->get_mesh(e);
+        const auto* trans_comp = world()->get_transform(e);
+
+        if (!mesh_comp || mesh_comp->model_path.empty() ||
+            mesh_comp->texture_path.empty())
+            continue;
+
+        // resolve model
+        mesh_handle m_handle = INVALID_MESH_HANDLE;
+        auto&       cached_m = _model_cache[mesh_comp->model_path];
+        if (cached_m.mesh == INVALID_MESH_HANDLE) {
+            cached_m.asset = asset()->load_model(mesh_comp->model_path);
+            if (cached_m.asset && !cached_m.asset->vertices.empty()) {
+                cached_m.mesh = _next_mesh_handle.fetch_add(1);
+                _backend->create_mesh(cached_m.mesh,
+                                      cached_m.asset->vertices,
+                                      cached_m.asset->indices);
+            }
+        }
+        m_handle = cached_m.mesh;
+
+        // resolve texture
+        texture_handle t_handle = INVALID_TEXTURE_HANDLE;
+        auto&          cached_t = _texture_cache[mesh_comp->texture_path];
+        if (cached_t.texture == INVALID_TEXTURE_HANDLE) {
+            cached_t.asset = asset()->load_image(mesh_comp->texture_path);
+            if (cached_t.asset) {
+                texture_desc t_desc {
+                    .width  = cached_t.asset->width,
+                    .height = cached_t.asset->height,
+                    .pixels = std::span<const u8>(cached_t.asset->pixels)};
+                cached_t.texture = _next_texture_handle.fetch_add(1);
+                _backend->create_texture(cached_t.texture, t_desc);
+            }
+        }
+        t_handle = cached_t.texture;
+
+        if (m_handle != INVALID_MESH_HANDLE &&
+            t_handle != INVALID_TEXTURE_HANDLE &&
+            _default_pipeline != INVALID_PIPELINE_HANDLE) {
+            math::mat4 transform =
+                trans_comp ? trans_comp->matrix : math::mat4::identity();
+            // using entity id as sort key for now
+            _command_list.draw_mesh(
+                _default_pipeline, t_handle, m_handle, transform, e);
+        }
     }
 
-    _backend->execute_recorded_commands(secondary_cmds);
+    // 4. sort and chunk commands
+    _command_list.sort();
+    auto packets = _command_list.get_packets();
 
-    for (auto* list : lists) {
-        list->clear();
+    if (!packets.empty()) {
+        const usize chunk_size = 256;
+        const usize num_chunks = (packets.size() + chunk_size - 1) / chunk_size;
+
+        std::vector<vent::task> tasks;
+        tasks.reserve(num_chunks);
+
+        for (usize i = 0; i < num_chunks; ++i) {
+            usize start = i * chunk_size;
+            usize end   = (std::min) (start + chunk_size, packets.size());
+            auto  chunk = std::span<const render_packet>(packets.data() + start,
+                                                        end - start);
+
+            tasks.push_back(job()->submit([this, chunk]() -> void* {
+                return _backend->record_command_chunk(chunk);
+            }));
+        }
+
+        std::vector<void*> secondary_cmds;
+        secondary_cmds.reserve(num_chunks);
+        for (auto& task : tasks) {
+            secondary_cmds.push_back(task.get<void*>());
+        }
+
+        _backend->execute_recorded_commands(secondary_cmds);
     }
+
+    // 5. present frame
+    _backend->end_frame(window);
 }
 
 }  // namespace vent

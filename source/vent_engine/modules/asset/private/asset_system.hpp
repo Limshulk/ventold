@@ -79,6 +79,9 @@ public:
     auto load_image(std::string_view virtual_path) -> image_asset* override;
     auto release_image(image_asset* asset) -> void override;
 
+    auto load_model(std::string_view virtual_path) -> model_asset* override;
+    auto release_model(model_asset* asset) -> void override;
+
 private:
     std::unordered_map<std::string, std::string> _mount_points;
     std::unordered_map<std::string, std::unique_ptr<shader_asset>> _shader_cache;
@@ -86,6 +89,9 @@ private:
 
     std::unordered_map<std::string, std::unique_ptr<image_asset>> _image_cache;
     std::mutex                                                    _image_mutex;
+
+    std::unordered_map<std::string, std::unique_ptr<model_asset>> _model_cache;
+    std::mutex                                                    _model_mutex;
 };
 
 }  // namespace vent

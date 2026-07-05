@@ -16,6 +16,7 @@ vent_create_client(
         platform
         renderer
         asset
+        world
     PLUGINS
         vulkan_backend     # copied, loaded dynamically by renderer.
     # STARTUP_PLUGINS     # (empty - no plugins need auto-loading).
@@ -32,4 +33,8 @@ vent_compile_shaders(
 )
 
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/texture.jpg"
+     DESTINATION "${VENT_APPS_OUTPUT_DIR}/minimal/assets")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/viking_room.obj"
+     DESTINATION "${VENT_APPS_OUTPUT_DIR}/minimal/assets")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/viking_room.png"
      DESTINATION "${VENT_APPS_OUTPUT_DIR}/minimal/assets")

@@ -12,5 +12,6 @@ add_subdirectory(asset)
 add_subdirectory(job)
 add_subdirectory(platform)
 add_subdirectory(renderer)
+add_subdirectory(world)
 
 vent_log("modules configured.")

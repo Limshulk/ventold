@@ -14,7 +14,6 @@ namespace vent {
 
 /// @brief standard global uniform buffer object containing transformation matrices.
 struct uniform_buffer_object {
-    alignas(16) math::mat4 model;
     alignas(16) math::mat4 view;
     alignas(16) math::mat4 proj;
 };

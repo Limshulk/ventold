@@ -70,6 +70,10 @@ VENT_API auto renderer() -> ic_renderer* {
     return g_system_registry->get<ic_renderer>();
 }
 
+VENT_API auto world() -> ic_world* {
+    return g_system_registry->get<ic_world>();
+}
+
 // --- return if ready accessors ---
 // —————————————————————————————————————————————————————————————————————————————
 

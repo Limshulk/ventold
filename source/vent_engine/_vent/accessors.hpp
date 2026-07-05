@@ -21,6 +21,7 @@
 #include <_vent/log/ic_log.hpp>
 #include <_vent/platform/ic_platform.hpp>
 #include <_vent/renderer/ic_renderer.hpp>
+#include <_vent/world/ic_world.hpp>
 
 namespace vent {
 
@@ -57,6 +58,10 @@ VENT_API auto platform() -> ic_platform*;
 /// @brief get the renderer system.
 /// @return pointer to the renderer system, or nullptr if not available.
 VENT_API auto renderer() -> ic_renderer*;
+
+/// @brief get the world system.
+/// @return pointer to the world system.
+VENT_API auto world() -> ic_world*;
 
 // --- safe accessors (for initialization) ---
 // —————————————————————————————————————————————————————————————————————————————

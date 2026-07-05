@@ -52,61 +52,13 @@ public:
     /// @param window the window to end rendering for.
     virtual auto end_frame(ic_window* window) -> void = 0;
 
-    // --- pipeline management ---
+    // --- camera management ---
     // —————————————————————————————————————————————————————————————————————————
 
-    /// @brief create a graphics pipeline from the given description.
-    virtual auto create_graphics_pipeline(const pipeline_desc& desc)
-        -> pipeline_handle = 0;
-
-    /// @brief destroy a graphics pipeline.
-    /// @param handle the pipeline to destroy.
-    virtual auto destroy_graphics_pipeline(pipeline_handle handle) -> void = 0;
-
-    /// @brief bind a graphics pipeline for the current frame.
-    /// @param handle the pipeline handle to bind.
-    virtual auto bind_pipeline(pipeline_handle handle) -> void = 0;
-
-    /// @brief update global uniform buffer data.
-    /// @param ubo the uniform data to pass to the renderer.
-    virtual auto update_global_uniforms(const uniform_buffer_object& ubo)
-        -> void = 0;
-
-    // --- textures ---
-    // —————————————————————————————————————————————————————————————————————————
-
-    /// @brief create a texture from declarative description.
-    virtual auto create_texture(const texture_desc& desc) -> texture_handle = 0;
-
-    /// @brief destroy a texture.
-    virtual auto destroy_texture(texture_handle handle) -> void = 0;
-
-    // --- mesh management ---
-    // —————————————————————————————————————————————————————————————————————————
-
-    /// @brief create a mesh from a list of vertices.
-    /// @param vertices the raw vertex data.
-    /// @param indices the raw index data.
-    /// @return an opaque handle to the mesh.
-    virtual auto create_mesh(std::span<const vertex>   vertices,
-                             std::span<const uint32_t> indices = {})
-        -> mesh_handle = 0;
-
-    /// @brief destroy a mesh.
-    /// @param handle the mesh to destroy.
-    virtual auto destroy_mesh(mesh_handle handle) -> void = 0;
-
-    // --- rendering submission ---
-    // —————————————————————————————————————————————————————————————————————————
-
-    /// @brief get a thread-local command list for the current worker thread.
-    /// this allows multiple threads to safely record draw commands in parallel.
-    virtual auto get_command_list() -> command_list& = 0;
-
-    /// @brief submit all recorded command lists to the renderer.
-    /// usually called once per frame by the main thread.
-    virtual auto submit_command_lists(std::span<command_list* const> lists)
-        -> void = 0;
+    /// @brief set the global camera matrices for the current frame.
+    /// @param view the view matrix.
+    /// @param proj the projection matrix.
+    virtual auto set_camera(const math::mat4& view, const math::mat4& proj) -> void = 0;
 };
 
 }  // namespace vent

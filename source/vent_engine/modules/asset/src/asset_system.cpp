@@ -17,6 +17,11 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tinyobjloader/tiny_obj_loader.h>
+
+#include <_vent/asset/model.hpp>
+
 namespace vent {
 
 auto asset_system::initialize() -> bool {
@@ -195,6 +200,93 @@ auto asset_system::release_image(image_asset* asset) -> void {
         if (it->second.get() == asset) {
             log()->trace("asset", "released image '{}'", it->first);
             _image_cache.erase(it);
+            return;
+        }
+    }
+}
+
+auto asset_system::load_model(std::string_view virtual_path) -> model_asset* {
+    std::string path(virtual_path);
+
+    {
+        std::lock_guard lock(_model_mutex);
+        if (_model_cache.contains(path)) {
+            return _model_cache[path].get();
+        }
+    }
+
+    std::string phys_path = resolve(virtual_path);
+    if (phys_path.empty()) {
+        log()->error("asset", "failed to resolve model path: {}", virtual_path);
+        return nullptr;
+    }
+
+    tinyobj::attrib_t                attrib;
+    std::vector<tinyobj::shape_t>    shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string                      warn, err;
+
+    if (!tinyobj::LoadObj(
+            &attrib, &shapes, &materials, &warn, &err, phys_path.c_str())) {
+        log()->error(
+            "asset", "failed to load model: {} ({})", virtual_path, err);
+        return nullptr;
+    }
+
+    if (!warn.empty()) {
+        log()->warn("asset", "tinyobjloader warning: {}", warn);
+    }
+
+    auto                            asset = std::make_unique<model_asset>();
+    std::unordered_map<vertex, u32> unique_vertices {};
+
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            vertex vertex {};
+
+            vertex.position = {attrib.vertices[3 * index.vertex_index + 0],
+                               attrib.vertices[3 * index.vertex_index + 1],
+                               attrib.vertices[3 * index.vertex_index + 2]};
+
+            if (index.texcoord_index >= 0) {
+                vertex.u = attrib.texcoords[2 * index.texcoord_index + 0];
+                // Vulkan uses 0 at top and 1 at bottom, OBJ uses 0 at bottom
+                // and 1 at top
+                vertex.v =
+                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1];
+            }
+
+            vertex.color = {1.0f, 1.0f, 1.0f};
+
+            if (!unique_vertices.contains(vertex)) {
+                unique_vertices[vertex] =
+                    static_cast<u32>(asset->vertices.size());
+                asset->vertices.push_back(vertex);
+            }
+
+            asset->indices.push_back(unique_vertices[vertex]);
+        }
+    }
+
+    std::lock_guard lock(_model_mutex);
+    _model_cache[path] = std::move(asset);
+    log()->trace("asset",
+                 "loaded model '{}' ({} vertices, {} indices)",
+                 virtual_path,
+                 _model_cache[path]->vertices.size(),
+                 _model_cache[path]->indices.size());
+    return _model_cache[path].get();
+}
+
+auto asset_system::release_model(model_asset* asset) -> void {
+    if (!asset)
+        return;
+
+    std::lock_guard lock(_model_mutex);
+    for (auto it = _model_cache.begin(); it != _model_cache.end(); ++it) {
+        if (it->second.get() == asset) {
+            log()->trace("asset", "released model '{}'", it->first);
+            _model_cache.erase(it);
             return;
         }
     }

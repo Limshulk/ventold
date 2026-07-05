@@ -99,7 +99,7 @@ vulkan_pipeline::vulkan_pipeline(
         .depthClampEnable        = false,
         .rasterizerDiscardEnable = false,
         .polygonMode             = vk::PolygonMode::eFill,
-        .cullMode                = vk::CullModeFlagBits::eBack,
+        .cullMode                = vk::CullModeFlagBits::eNone,
         .frontFace               = vk::FrontFace::eCounterClockwise,
         .depthBiasEnable         = false,
         .lineWidth               = 1.0f};
@@ -122,11 +122,18 @@ vulkan_pipeline::vulkan_pipeline(
         .attachmentCount = 1,
         .pAttachments    = &color_blend_attachment};
 
+    // push constants.
+    vk::PushConstantRange push_constant_range {
+        .stageFlags = vk::ShaderStageFlagBits::eVertex,
+        .offset     = 0,
+        .size       = sizeof(math::mat4)};
+
     // pipeline layout.
     vk::PipelineLayoutCreateInfo pipeline_layout_info {
         .setLayoutCount         = 1,
         .pSetLayouts            = &*global_descriptor_set_layout,
-        .pushConstantRangeCount = 0};
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &push_constant_range};
 
     try {
         _pipeline_layout =

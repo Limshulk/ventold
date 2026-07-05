@@ -89,6 +89,9 @@ function(vent_create_module)
     # sdk headers.
     target_include_directories(${TARGET_NAME} PUBLIC "${VENT_ENGINE_DIR}")
 
+    # third_party headers (available to all modules).
+    target_include_directories(${TARGET_NAME} PUBLIC "${VENT_ENGINE_DIR}/third_party")
+
     # this module's public headers.
     target_include_directories(${TARGET_NAME} PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/public"

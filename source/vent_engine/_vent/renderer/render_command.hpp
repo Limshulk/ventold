@@ -29,7 +29,9 @@ struct render_packet {
     sort_key
         key;  ///< 0x00-0x08 (8b): 64-bit sort key for depth/pipeline sorting.
     mesh_handle mesh;  ///< 0x08-0x10 (8b): opaque handle to the mesh to draw.
-    // ... future: pipeline_handle, material_handle, transform_index, etc.
+    texture_handle texture; ///< 0x10-0x18 (8b): handle to the texture to bind.
+    pipeline_handle pipeline; ///< 0x18-0x20 (8b): handle to the graphics pipeline.
+    math::mat4 transform; ///< 0x20-0x60 (64b): the model-to-world transform.
 };
 
 // a thread-local list of rendering commands.
@@ -42,11 +44,8 @@ public:
 
     VENT_NO_COPY_MOVE(command_list)
 
-    /// @brief push a mesh draw command into the list.
-    /// @param mesh the mesh to draw.
-    /// @param key the sorting key.
-    VENT_INLINE auto draw_mesh(mesh_handle mesh, sort_key key = 0) -> void {
-        _packets.emplace_back(key, mesh);
+    VENT_INLINE auto draw_mesh(pipeline_handle pipeline, texture_handle texture, mesh_handle mesh, const math::mat4& transform, sort_key key = 0) -> void {
+        _packets.push_back({key, mesh, texture, pipeline, transform});
     }
 
     /// @brief clear the list for the next frame.
