@@ -42,6 +42,13 @@ public:
 
     /// @brief releases a shader from the cache.
     virtual auto release_shader(shader_asset* asset) -> void = 0;
+
+    /// @brief loads an image from a virtual path.
+    virtual auto load_image(std::string_view virtual_path)
+        -> class image_asset* = 0;
+
+    /// @brief releases an image from the cache.
+    virtual auto release_image(class image_asset* asset) -> void = 0;
 };
 
 }  // namespace vent

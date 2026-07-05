@@ -8,12 +8,10 @@
 // the backend owns api-specific resources like surfaces and devices.
 
 #include <_vent/vent_sdk.hpp>
-#include <_vent/renderer/render_command.hpp>
-#include <_vent/renderer/vertex.hpp>
-
-
-
 #include <_vent/renderer/pipeline_desc.hpp>
+#include <_vent/renderer/render_command.hpp>
+#include <_vent/renderer/texture_desc.hpp>
+#include <_vent/renderer/vertex.hpp>
 
 #include <memory>
 #include <string_view>
@@ -88,11 +86,18 @@ public:
     /// @brief create a graphics pipeline from the given description.
     /// @param handle the frontend-generated handle for the pipeline.
     /// @param desc the pipeline descriptor.
-    virtual auto create_graphics_pipeline(pipeline_handle handle, const pipeline_desc& desc) -> void = 0;
+    virtual auto create_graphics_pipeline(pipeline_handle      handle,
+                                          const pipeline_desc& desc)
+        -> void = 0;
 
     /// @brief destroy a graphics pipeline.
     /// @param handle the pipeline handle to destroy.
     virtual auto destroy_graphics_pipeline(pipeline_handle handle) -> void = 0;
+
+    // --- textures ---
+    virtual auto create_texture(texture_handle handle, const texture_desc& desc)
+        -> void                                                 = 0;
+    virtual auto destroy_texture(texture_handle handle) -> void = 0;
 
     /// @brief bind a graphics pipeline for the current frame.
     /// @param handle the pipeline handle to bind.
@@ -100,7 +105,8 @@ public:
 
     /// @brief update global uniform buffer data.
     /// @param ubo the uniform data to pass to the renderer.
-    virtual auto update_global_uniforms(const uniform_buffer_object& ubo) -> void = 0;
+    virtual auto update_global_uniforms(const uniform_buffer_object& ubo)
+        -> void = 0;
 
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -109,9 +115,10 @@ public:
     /// @param handle the frontend-generated handle for the mesh.
     /// @param vertices the list of vertices to upload.
     /// @param indices an optional list of indices for indexed drawing.
-    virtual auto create_mesh(mesh_handle handle,
+    virtual auto create_mesh(mesh_handle               handle,
                              std::span<const vertex>   vertices,
-                             std::span<const uint32_t> indices = {}) -> void = 0;
+                             std::span<const uint32_t> indices = {})
+        -> void = 0;
 
     /// @brief destroy a mesh.
     /// @param handle the mesh handle to destroy.
@@ -120,14 +127,16 @@ public:
     // --- rendering execution ---
     // —————————————————————————————————————————————————————————————————————————
 
-    /// @brief records commands for a list of render packets on a background thread.
+    /// @brief records commands for a list of render packets on a background
+    /// thread.
     /// @param chunk the chunk of draw commands to execute.
     /// @return an opaque handle to the recorded command list.
     virtual auto record_command_chunk(std::span<const render_packet> chunk)
         -> void* = 0;
 
     /// @brief executes the recorded command lists on the primary command buffer.
-    /// @param command_lists span of opaque command list handles returned by record_command_chunk.
+    /// @param command_lists span of opaque command list handles returned by
+    /// record_command_chunk.
     virtual auto execute_recorded_commands(std::span<void* const> command_lists)
         -> void = 0;
 };

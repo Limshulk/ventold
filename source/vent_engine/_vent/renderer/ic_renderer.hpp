@@ -12,6 +12,7 @@
 #include <_vent/renderer/vertex.hpp>
 #include <_vent/renderer/pipeline_desc.hpp>
 #include <_vent/renderer/render_command.hpp>
+#include <_vent/renderer/texture_desc.hpp>
 
 #include <memory>
 #include <span>
@@ -20,7 +21,6 @@ namespace vent {
 
 // forward declarations
 class ic_window;
-
 
 struct uniform_buffer_object;
 
@@ -69,7 +69,17 @@ public:
 
     /// @brief update global uniform buffer data.
     /// @param ubo the uniform data to pass to the renderer.
-    virtual auto update_global_uniforms(const uniform_buffer_object& ubo) -> void = 0;
+    virtual auto update_global_uniforms(const uniform_buffer_object& ubo)
+        -> void = 0;
+
+    // --- textures ---
+    // —————————————————————————————————————————————————————————————————————————
+
+    /// @brief create a texture from declarative description.
+    virtual auto create_texture(const texture_desc& desc) -> texture_handle = 0;
+
+    /// @brief destroy a texture.
+    virtual auto destroy_texture(texture_handle handle) -> void = 0;
 
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————

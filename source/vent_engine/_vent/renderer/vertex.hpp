@@ -16,6 +16,9 @@ namespace vent {
 struct vertex {
     math::vec3 position;
     math::vec3 color;
+
+    f32 u;
+    f32 v;
 };
 
 }  // namespace vent

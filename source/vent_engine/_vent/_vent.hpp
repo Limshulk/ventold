@@ -18,6 +18,8 @@
 
 // --- interfaces (ic_*) ---
 #include <_vent/asset/ic_asset.hpp>
+#include <_vent/asset/image.hpp>
+#include <_vent/asset/shader.hpp>
 #include <_vent/event_bus/ic_event_bus.hpp>
 #include <_vent/core/ic_system_registry.hpp>
 #include <_vent/job/ic_job.hpp>

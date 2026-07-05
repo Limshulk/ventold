@@ -21,13 +21,21 @@ set(VENT_SDK_CMAKE_DIR "${VENT_SDK_DIR}/cmake")
 # copies _vent/ to sdk/include/_vent/.
 # this target always runs to ensure headers are up to date.
 
-add_custom_target(vent_headers ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${VENT_SDK_INCLUDE_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${VENT_SDK_SOURCE_DIR}"
-        "${VENT_SDK_INCLUDE_DIR}/_vent"
-    COMMENT "copying sdk headers"
-)
+file(GLOB_RECURSE VENT_SDK_HEADERS CONFIGURE_DEPENDS "${VENT_SDK_SOURCE_DIR}/*")
+set(SDK_HEADER_OUTPUTS "")
+foreach(HEADER ${VENT_SDK_HEADERS})
+    file(RELATIVE_PATH REL_HEADER "${VENT_SDK_SOURCE_DIR}" "${HEADER}")
+    set(DEST_HEADER "${VENT_SDK_INCLUDE_DIR}/_vent/${REL_HEADER}")
+    
+    add_custom_command(
+        OUTPUT "${DEST_HEADER}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${HEADER}" "${DEST_HEADER}"
+        DEPENDS "${HEADER}"
+        COMMENT "copying header: ${REL_HEADER}"
+    )
+    list(APPEND SDK_HEADER_OUTPUTS "${DEST_HEADER}")
+endforeach()
+add_custom_target(vent_headers ALL DEPENDS ${SDK_HEADER_OUTPUTS})
 
 # --- copy templates ---
 # copies templates/ to sdk/templates/.

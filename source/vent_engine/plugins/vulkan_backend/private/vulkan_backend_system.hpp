@@ -104,8 +104,17 @@ private:
         u32           index_count      = 0;
     };
 
+    struct vulkan_texture {
+        VkImage               image      = nullptr;
+        VmaAllocation         allocation = nullptr;
+        vk::raii::ImageView   view       = nullptr;
+        vk::raii::Sampler     sampler    = nullptr;
+    };
+
     std::unordered_map<mesh_handle, vulkan_mesh_data> _meshes;
     std::mutex                                        _mesh_mutex;
+    std::unordered_map<texture_handle, vulkan_texture> _textures;
+    std::mutex                                       _texture_mutex;
 
     class vulkan_pipeline* _active_pipeline = nullptr;
     std::unordered_map<pipeline_handle, std::unique_ptr<class vulkan_pipeline>> _pipelines;
@@ -170,6 +179,9 @@ public:
     /// @brief destroys a graphics pipeline.
     /// @param handle the pipeline handle.
     auto destroy_graphics_pipeline(pipeline_handle handle) -> void override;
+
+    auto create_texture(texture_handle handle, const texture_desc& desc) -> void override;
+    auto destroy_texture(texture_handle handle) -> void override;
 
     /// @brief binds a pipeline for subsequent draw calls in the current frame.
     /// @param handle the pipeline handle to bind.

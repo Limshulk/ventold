@@ -7,25 +7,26 @@
 # ——————————————————————————————————————————————————————————————————————————————
 # find system glfw 3.4+ or fetch from github.
 
-find_package(glfw3 3.4 QUIET)
+include(FetchContent)
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY    https://github.com/glfw/glfw.git
+    GIT_TAG           7b6aead9fb88b3623e3b3725ebb42670cbe4c579 # 3.4
+    GIT_SHALLOW       TRUE
+    FIND_PACKAGE_ARGS 3.4
+)
 
-if(NOT glfw3_FOUND)
-    message(STATUS "[vent] glfw 3.4 not found, fetching from github...")
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 
-    include(FetchContent)
-    FetchContent_Declare(
-        glfw
-        GIT_REPOSITORY https://github.com/glfw/glfw.git
-        GIT_TAG        3.4
-    )
+FetchContent_MakeAvailable(glfw)
 
-    # configure glfw build options.
-    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-
-    FetchContent_MakeAvailable(glfw)
+if(TARGET glfw)
+    message(STATUS "[vent] using GLFW from: ${glfw_SOURCE_DIR}")
+else()
+    message(STATUS "[vent] using system-installed GLFW (find_package)")
 endif()
 
 # --- create platform module ---

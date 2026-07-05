@@ -87,7 +87,7 @@ inline auto get_lib_symbol(lib_handle handle, const char* name) -> T {
     if (handle == INVALID_LIB_HANDLE || name == nullptr)
         return nullptr;
 #ifdef _WIN32
-    return reinterpret_cast<T>(GetProcAddress(handle, name));
+    return reinterpret_cast<T>(reinterpret_cast<void*>(GetProcAddress(handle, name)));
 #else
     return reinterpret_cast<T>(dlsym(handle, name));
 #endif

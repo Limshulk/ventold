@@ -46,7 +46,7 @@ public:
     /// @param mesh the mesh to draw.
     /// @param key the sorting key.
     VENT_INLINE auto draw_mesh(mesh_handle mesh, sort_key key = 0) -> void {
-        _packets.push_back({key, mesh});
+        _packets.emplace_back(key, mesh);
     }
 
     /// @brief clear the list for the next frame.

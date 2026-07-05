@@ -74,12 +74,18 @@ public:
         -> std::vector<u8> override;
 
     auto load_shader(std::string_view virtual_path) -> shader_asset* override;
-
     auto release_shader(shader_asset* asset) -> void override;
+
+    auto load_image(std::string_view virtual_path) -> image_asset* override;
+    auto release_image(image_asset* asset) -> void override;
 
 private:
     std::unordered_map<std::string, std::string> _mount_points;
     std::unordered_map<std::string, std::unique_ptr<shader_asset>> _shader_cache;
+    std::mutex _shader_mutex;
+
+    std::unordered_map<std::string, std::unique_ptr<image_asset>> _image_cache;
+    std::mutex                                                    _image_mutex;
 };
 
 }  // namespace vent

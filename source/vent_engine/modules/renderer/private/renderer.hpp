@@ -70,6 +70,11 @@ public:
 
     auto destroy_graphics_pipeline(pipeline_handle handle) -> void override;
 
+    // --- textures ---
+    [[nodiscard]]
+    auto create_texture(const texture_desc& desc) -> texture_handle override;
+    auto destroy_texture(texture_handle handle) -> void override;
+
     auto bind_pipeline(pipeline_handle handle) -> void override;
 
     auto update_global_uniforms(const uniform_buffer_object& ubo) -> void override;
@@ -94,8 +99,9 @@ private:
     subscription_id         _window_sub {};  ///< window.created subscription.
     subscription_id         _window_destroyed_sub {};  ///< window.destroyed
                                                        ///< subscription.
-    std::atomic<mesh_handle>     _next_mesh_handle {1};
-    std::atomic<pipeline_handle> _next_pipeline_handle {1};
+    std::atomic<u64> _next_pipeline_handle {1};
+    std::atomic<u64> _next_mesh_handle {1};
+    std::atomic<u64> _next_texture_handle {1};
     i_device* _device = nullptr;                       ///< gpu device.
 
 

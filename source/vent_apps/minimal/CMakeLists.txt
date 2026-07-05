@@ -30,3 +30,6 @@ vent_compile_shaders(
         assets/shaders/dummy.slang
         assets/shaders/shader.slang
 )
+
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/texture.jpg"
+     DESTINATION "${VENT_APPS_OUTPUT_DIR}/minimal/assets")

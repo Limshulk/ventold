@@ -179,7 +179,7 @@ auto renderer_system::create_graphics_pipeline(const pipeline_desc& desc)
     -> pipeline_handle {
     log()->trace("renderer", "creating graphics pipeline");
     if (!_backend) return INVALID_PIPELINE_HANDLE;
-    pipeline_handle handle = _next_pipeline_handle.fetch_add(1);
+    pipeline_handle handle { _next_pipeline_handle.fetch_add(1) };
     _backend->create_graphics_pipeline(handle, desc);
     return handle;
 }
@@ -189,6 +189,20 @@ auto renderer_system::destroy_graphics_pipeline(pipeline_handle handle) -> void 
         _backend->destroy_graphics_pipeline(handle);
     }
 }
+
+// --- textures ---
+
+auto renderer_system::create_texture(const texture_desc& desc) -> texture_handle {
+    texture_handle handle { _next_texture_handle.fetch_add(1) };
+    _backend->create_texture(handle, desc);
+    return handle;
+}
+
+auto renderer_system::destroy_texture(texture_handle handle) -> void {
+    _backend->destroy_texture(handle);
+}
+
+// --- meshes ---
 
 auto renderer_system::bind_pipeline(pipeline_handle handle) -> void {
     if (_backend) {
@@ -208,7 +222,7 @@ auto renderer_system::create_mesh(std::span<const vertex>   vertices,
     log()->trace("renderer", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
     if (!_backend || vertices.empty())
         return INVALID_MESH_HANDLE;
-    mesh_handle handle = _next_mesh_handle.fetch_add(1);
+    mesh_handle handle { _next_mesh_handle.fetch_add(1) };
     _backend->create_mesh(handle, vertices, indices);
     return handle;
 }

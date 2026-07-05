@@ -6,12 +6,16 @@
 #include <asset_system.hpp>
 
 #include <_vent/accessors.hpp>
+#include <_vent/asset/image.hpp>
 
 #include <core/system/registration.hpp>
 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
 
 namespace vent {
 
@@ -89,7 +93,9 @@ auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
         return it->second.get();
     }
 
-    log()->trace("asset", "shader '{}' not in cache, reading from disk...", virtual_path);
+    log()->trace("asset",
+                 "shader '{}' not in cache, reading from disk...",
+                 virtual_path);
 
     std::vector<u8> bytecode = read_binary_file(virtual_path);
     if (bytecode.empty()) {
@@ -114,7 +120,8 @@ auto asset_system::load_shader(std::string_view virtual_path) -> shader_asset* {
     shader_asset* ptr       = asset.get();
     _shader_cache[path_str] = std::move(asset);
 
-    log()->trace("asset", "shader '{}' successfully loaded and cached.", virtual_path);
+    log()->trace(
+        "asset", "shader '{}' successfully loaded and cached.", virtual_path);
 
     return ptr;
 }
@@ -134,7 +141,66 @@ auto asset_system::release_shader(shader_asset* asset) -> void {
     }
 }
 
-// system registration.
-VENT_REGISTER_SYSTEM(vent::asset_system, vent::i_asset, vent::ic_asset);
+auto asset_system::load_image(std::string_view virtual_path) -> image_asset* {
+    std::string path {virtual_path};
+    {
+        std::lock_guard lock(_image_mutex);
+        if (auto it = _image_cache.find(path); it != _image_cache.end()) {
+            return it->second.get();
+        }
+    }
+
+    std::vector<u8> buffer = read_binary_file(virtual_path);
+    if (buffer.empty()) {
+        log()->error("asset", "failed to read image file: {}", virtual_path);
+        return nullptr;
+    }
+
+    int      width, height, channels;
+    stbi_uc* pixels = stbi_load_from_memory(buffer.data(),
+                                            static_cast<int>(buffer.size()),
+                                            &width,
+                                            &height,
+                                            &channels,
+                                            STBI_rgb_alpha);
+    if (!pixels) {
+        log()->error("asset", "failed to decode image: {}", virtual_path);
+        return nullptr;
+    }
+
+    auto asset      = std::make_unique<image_asset>();
+    asset->width    = width;
+    asset->height   = height;
+    asset->channels = 4;  // forced STBI_rgb_alpha
+
+    size_t image_size = width * height * 4;
+    asset->pixels.resize(image_size);
+    std::memcpy(asset->pixels.data(), pixels, image_size);
+
+    stbi_image_free(pixels);
+
+    std::lock_guard lock(_image_mutex);
+    _image_cache[path] = std::move(asset);
+    log()->trace(
+        "asset", "loaded image '{}' ({}x{})", virtual_path, width, height);
+    return _image_cache[path].get();
+}
+
+auto asset_system::release_image(image_asset* asset) -> void {
+    if (!asset)
+        return;
+
+    std::lock_guard lock(_image_mutex);
+    for (auto it = _image_cache.begin(); it != _image_cache.end(); ++it) {
+        if (it->second.get() == asset) {
+            log()->trace("asset", "released image '{}'", it->first);
+            _image_cache.erase(it);
+            return;
+        }
+    }
+}
 
 }  // namespace vent
+
+// system registration.
+VENT_REGISTER_SYSTEM(vent::asset_system, vent::i_asset, vent::ic_asset);

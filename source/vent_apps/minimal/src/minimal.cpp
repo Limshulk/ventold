@@ -105,15 +105,29 @@ public:
         }
 
         vent::vertex vertices[] = {
-            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},  // red
-            {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},   // green
-            {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},    // blue
-            {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}}    // white
+            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, 0.0f, 0.0f},  // red (top left)
+            {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, 1.0f, 0.0f},  // green (top right)
+            {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, 1.0f, 1.0f},  // blue (bottom right)
+            {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, 0.0f, 1.0f}   // white (bottom left)
         };
 
         vent::u32 indices[] = {0, 1, 2, 2, 3, 0};
 
         _triangle_mesh = vent::renderer()->create_mesh(vertices, indices);
+
+        // load texture
+        vent::image_asset* image = vent::asset()->load_image("app://assets/texture.jpg");
+        if (image) {
+            vent::texture_desc tex_desc {
+                .width = image->width,
+                .height = image->height,
+                .pixels = std::span<const vent::u8>(image->pixels)
+            };
+            _texture = vent::renderer()->create_texture(tex_desc);
+            vent::log()->trace("client", "successfully created texture!");
+        } else {
+            vent::log()->error("client", "failed to load texture!");
+        }
 
         _frame_count = 0;
         _elapsed     = 0.0;
@@ -182,10 +196,16 @@ public:
 
     auto on_shutdown() -> void override {
         vent::log()->trace("client", "minimal_client::on_shutdown() called");
-        // unsubscribe from events (cleanup).
-        // if (_resize_sub != vent::INVALID_SUBSCRIPTION) {
-        //     vent::events()->unsubscribe(_resize_sub);
-        // }
+
+        if (_texture != vent::INVALID_TEXTURE_HANDLE) {
+            vent::renderer()->destroy_texture(_texture);
+        }
+        if (_triangle_mesh != vent::INVALID_MESH_HANDLE) {
+            vent::renderer()->destroy_mesh(_triangle_mesh);
+        }
+        if (_pipeline != vent::INVALID_PIPELINE_HANDLE) {
+            vent::renderer()->destroy_graphics_pipeline(_pipeline);
+        }
 
         for (auto it = _windows.rbegin(); it != _windows.rend(); ++it) {
             vent::platform()->destroy_window(*it);
@@ -207,6 +227,7 @@ private:
     std::vector<vent::ic_window*>      _windows;
     vent::pipeline_handle _pipeline = vent::INVALID_PIPELINE_HANDLE;
     vent::mesh_handle _triangle_mesh = vent::INVALID_MESH_HANDLE;
+    vent::texture_handle _texture = vent::INVALID_TEXTURE_HANDLE;
     vent::u64         _frame_count   = 0;
     vent::f64         _elapsed       = 0.0;
 };

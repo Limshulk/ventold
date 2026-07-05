@@ -155,7 +155,7 @@ auto vulkan_backend_system::shutdown() -> void {
         }
         _meshes.clear();
     }
-    
+
     destroy_global_uniforms();
 
     if (_allocator) {
@@ -454,7 +454,7 @@ auto vulkan_backend_system::create_logical_device() -> bool {
                        vk::PhysicalDeviceVulkan11Features,
                        vk::PhysicalDeviceVulkan13Features,
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
-        feature_chain = {{},
+        feature_chain = {{.features = {.samplerAnisotropy = VK_TRUE}},
                          {.shaderDrawParameters = true},
                          {.synchronization2 = true, .dynamicRendering = true},
                          {.extendedDynamicState = true}};
@@ -653,9 +653,9 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
     }
 
     log()->info("vulkan",
-                 "surface created for window '{}' (present queue family: {}).",
-                 window->get_title(),
-                 surface_present_family);
+                "surface created for window '{}' (present queue family: {}).",
+                window->get_title(),
+                surface_present_family);
 
     vk::raii::Queue surface_present_queue =
         _device.getQueue(surface_present_family, 0);
@@ -685,7 +685,9 @@ auto vulkan_backend_system::destroy_surface(ic_window* window) -> void {
     if (!window) {
         return;
     }
-    log()->trace("vulkan", "marking surface for destruction for window '{}'", (void*)window);
+    log()->trace("vulkan",
+                 "marking surface for destruction for window '{}'",
+                 (void*) window);
 
     // rather than destroying the surface immediately, we mark it for
     // destruction. this avoids race conditions where the render thread is
@@ -725,8 +727,8 @@ auto vulkan_backend_system::begin_frame(ic_window* window) -> bool {
         if (it->marked_for_destruction) {
             it->swapchain->wait_for_fences();
             log()->info("vulkan",
-                         "destroying surface for window handle '{}'.",
-                         (void*) it->window);
+                        "destroying surface for window handle '{}'.",
+                        (void*) it->window);
             it = _surfaces.erase(it);
         } else {
             ++it;
@@ -771,11 +773,16 @@ auto vulkan_backend_system::end_frame(ic_window* window) -> void {
     }
 }
 
-auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle, const pipeline_desc& desc) -> void {
-    if (handle == INVALID_PIPELINE_HANDLE) return;
+auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle,
+                                                     const pipeline_desc& desc)
+    -> void {
+    if (handle == INVALID_PIPELINE_HANDLE)
+        return;
 
     if (_surfaces.empty() || !_surfaces[0].swapchain) {
-        log()->error("vulkan", "cannot create pipeline: no swapchain available for format/extent");
+        log()->error(
+            "vulkan",
+            "cannot create pipeline: no swapchain available for format/extent");
         return;
     }
 
@@ -786,8 +793,10 @@ auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle, con
         _device, get_global_descriptor_set_layout(), desc, format, extent);
 }
 
-auto vulkan_backend_system::destroy_graphics_pipeline(pipeline_handle handle) -> void {
-    if (handle == INVALID_PIPELINE_HANDLE) return;
+auto vulkan_backend_system::destroy_graphics_pipeline(pipeline_handle handle)
+    -> void {
+    if (handle == INVALID_PIPELINE_HANDLE)
+        return;
     _pipelines.erase(handle);
     if (_active_pipeline) {
         bool found = false;
@@ -808,7 +817,7 @@ auto vulkan_backend_system::bind_pipeline(pipeline_handle handle) -> void {
         _active_pipeline = nullptr;
         return;
     }
-    
+
     auto it = _pipelines.find(handle);
     if (it != _pipelines.end()) {
         _active_pipeline = it->second.get();
@@ -827,15 +836,26 @@ auto vulkan_backend_system::create_global_uniforms() -> void {
         .pImmutableSamplers = nullptr,
     };
 
+    vk::DescriptorSetLayoutBinding sampler_binding {
+        .binding            = 1,
+        .descriptorType     = vk::DescriptorType::eCombinedImageSampler,
+        .descriptorCount    = 1,
+        .stageFlags         = vk::ShaderStageFlagBits::eFragment,
+        .pImmutableSamplers = nullptr,
+    };
+
+    std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {ubo_binding,
+                                                              sampler_binding};
+
     vk::DescriptorSetLayoutCreateInfo layout_info {
-        .bindingCount = 1,
-        .pBindings    = &ubo_binding,
+        .bindingCount = static_cast<u32>(bindings.size()),
+        .pBindings    = bindings.data(),
     };
     _global_descriptor_set_layout =
         vk::raii::DescriptorSetLayout(_device, layout_info);
 
     // 2. create buffers
-    const u32 max_frames = 3; // MAX_FRAMES_IN_FLIGHT assumption
+    const u32    max_frames  = 3;  // MAX_FRAMES_IN_FLIGHT assumption
     VkDeviceSize buffer_size = sizeof(uniform_buffer_object);
 
     _global_uniform_buffers.resize(max_frames);
@@ -851,7 +871,8 @@ auto vulkan_backend_system::create_global_uniforms() -> void {
         };
 
         VmaAllocationCreateInfo alloc_info {
-            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
             .usage = VMA_MEMORY_USAGE_AUTO,
         };
 
@@ -868,27 +889,28 @@ auto vulkan_backend_system::create_global_uniforms() -> void {
     }
 
     // 3. descriptor pool
-    vk::DescriptorPoolSize pool_size {
-        .type            = vk::DescriptorType::eUniformBuffer,
-        .descriptorCount = max_frames,
-    };
+    std::array<vk::DescriptorPoolSize, 2> pool_sizes = {
+        vk::DescriptorPoolSize {vk::DescriptorType::eUniformBuffer, max_frames},
+        vk::DescriptorPoolSize {vk::DescriptorType::eCombinedImageSampler,
+                                max_frames}};
 
     vk::DescriptorPoolCreateInfo pool_info {
         .flags         = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
         .maxSets       = max_frames,
-        .poolSizeCount = 1,
-        .pPoolSizes    = &pool_size,
+        .poolSizeCount = static_cast<u32>(pool_sizes.size()),
+        .pPoolSizes    = pool_sizes.data(),
     };
     _descriptor_pool = vk::raii::DescriptorPool(_device, pool_info);
 
     // 4. allocate descriptor sets
-    std::vector<vk::DescriptorSetLayout> layouts(max_frames, *_global_descriptor_set_layout);
+    std::vector<vk::DescriptorSetLayout> layouts(
+        max_frames, *_global_descriptor_set_layout);
     vk::DescriptorSetAllocateInfo alloc_info {
         .descriptorPool     = *_descriptor_pool,
         .descriptorSetCount = max_frames,
         .pSetLayouts        = layouts.data(),
     };
-    
+
     _global_descriptor_sets = vk::raii::DescriptorSets(_device, alloc_info);
 
     // 5. write descriptor sets
@@ -900,12 +922,12 @@ auto vulkan_backend_system::create_global_uniforms() -> void {
         };
 
         vk::WriteDescriptorSet descriptor_write {
-            .dstSet           = *_global_descriptor_sets[i],
-            .dstBinding       = 0,
-            .dstArrayElement  = 0,
-            .descriptorCount  = 1,
-            .descriptorType   = vk::DescriptorType::eUniformBuffer,
-            .pBufferInfo      = &buffer_info,
+            .dstSet          = *_global_descriptor_sets[i],
+            .dstBinding      = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType  = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo     = &buffer_info,
         };
 
         _device.updateDescriptorSets(descriptor_write, nullptr);
@@ -914,22 +936,27 @@ auto vulkan_backend_system::create_global_uniforms() -> void {
 
 auto vulkan_backend_system::destroy_global_uniforms() -> void {
     _global_descriptor_sets.clear();
-    _descriptor_pool = nullptr;
+    _descriptor_pool              = nullptr;
     _global_descriptor_set_layout = nullptr;
 
     for (size_t i = 0; i < _global_uniform_buffers.size(); i++) {
-        vmaDestroyBuffer(_allocator, _global_uniform_buffers[i], _global_uniform_allocations[i]);
+        vmaDestroyBuffer(_allocator,
+                         _global_uniform_buffers[i],
+                         _global_uniform_allocations[i]);
     }
     _global_uniform_buffers.clear();
     _global_uniform_allocations.clear();
     _global_uniform_mapped.clear();
 }
 
-auto vulkan_backend_system::update_global_uniforms(const uniform_buffer_object& ubo) -> void {
-    if (!_active_swapchain || _global_uniform_mapped.empty()) return;
+auto vulkan_backend_system::update_global_uniforms(
+    const uniform_buffer_object& ubo) -> void {
+    if (!_active_swapchain || _global_uniform_mapped.empty())
+        return;
 
     u32 frame = _active_swapchain->get_current_frame_index();
-    if (frame < _global_uniform_mapped.size() && _global_uniform_mapped[frame]) {
+    if (frame < _global_uniform_mapped.size() &&
+        _global_uniform_mapped[frame]) {
         std::memcpy(_global_uniform_mapped[frame], &ubo, sizeof(ubo));
     }
 }
@@ -1006,7 +1033,7 @@ auto vulkan_backend_system::record_command_chunk(
     u32        current_frame  = _active_swapchain->get_current_frame_index();
     ic_window* current_window = _active_window;
 
-    auto ctx = get_thread_context();
+    auto                     ctx = get_thread_context();
     vk::raii::CommandBuffer* cmd = nullptr;
 
     if (ctx.used_buffers < ctx.buffers.size()) {
@@ -1017,8 +1044,8 @@ auto vulkan_backend_system::record_command_chunk(
             .level              = vk::CommandBufferLevel::eSecondary,
             .commandBufferCount = 1,
         };
-        ctx.buffers.push_back(std::move(
-            vk::raii::CommandBuffers(_device, alloc_info).front()));
+        ctx.buffers.push_back(
+            std::move(vk::raii::CommandBuffers(_device, alloc_info).front()));
         cmd = &ctx.buffers[ctx.used_buffers++];
     }
 
@@ -1042,7 +1069,7 @@ auto vulkan_backend_system::record_command_chunk(
     if (_active_pipeline) {
         cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
                           _active_pipeline->get_pipeline());
-                          
+
         cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                 _active_pipeline->get_pipeline_layout(),
                                 0,
@@ -1051,10 +1078,10 @@ auto vulkan_backend_system::record_command_chunk(
     }
 
     vk::Extent2D extent = _active_swapchain->get_extent();
-    vk::Viewport viewport {.x      = 0.0f,
-                           .y      = 0.0f,
-                           .width  = static_cast<float>(extent.width),
-                           .height = static_cast<float>(extent.height),
+    vk::Viewport viewport {.x        = 0.0f,
+                           .y        = 0.0f,
+                           .width    = static_cast<float>(extent.width),
+                           .height   = static_cast<float>(extent.height),
                            .minDepth = 0.0f,
                            .maxDepth = 1.0f};
     cmd->setViewport(0, viewport);
@@ -1097,14 +1124,14 @@ auto vulkan_backend_system::record_command_chunk(
 
 auto vulkan_backend_system::execute_recorded_commands(
     std::span<void* const> command_lists) -> void {
-    
+
     if (!_active_swapchain || command_lists.empty()) {
         return;
     }
 
     std::vector<vk::CommandBuffer> secondary_cmds;
     secondary_cmds.reserve(command_lists.size());
-    
+
     for (void* handle : command_lists) {
         if (handle) {
             secondary_cmds.push_back(reinterpret_cast<VkCommandBuffer>(handle));
@@ -1116,11 +1143,243 @@ auto vulkan_backend_system::execute_recorded_commands(
     }
 }
 
-auto vulkan_backend_system::create_mesh(mesh_handle handle,
+auto vulkan_backend_system::create_texture(texture_handle      handle,
+                                           const texture_desc& desc) -> void {
+    if (desc.pixels.empty() || handle == INVALID_TEXTURE_HANDLE)
+        return;
+
+    log()->trace("vulkan", "creating texture {}x{}", desc.width, desc.height);
+
+    VkDeviceSize image_size = desc.width * desc.height * 4;
+
+    // 1. staging buffer
+    VkBufferCreateInfo staging_buffer_info = {};
+    staging_buffer_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    staging_buffer_info.size        = image_size;
+    staging_buffer_info.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    staging_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo staging_alloc_info = {};
+    staging_alloc_info.usage                   = VMA_MEMORY_USAGE_AUTO;
+    staging_alloc_info.flags =
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+        VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VkBuffer          staging_buffer;
+    VmaAllocation     staging_allocation;
+    VmaAllocationInfo staging_alloc_result;
+
+    if (vmaCreateBuffer(_allocator,
+                        &staging_buffer_info,
+                        &staging_alloc_info,
+                        &staging_buffer,
+                        &staging_allocation,
+                        &staging_alloc_result) != VK_SUCCESS) {
+        log()->error("vulkan", "failed to create texture staging buffer.");
+        return;
+    }
+
+    std::memcpy(staging_alloc_result.pMappedData,
+                desc.pixels.data(),
+                static_cast<size_t>(image_size));
+
+    // 2. image
+    VkImageCreateInfo image_info = {};
+    image_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType         = VK_IMAGE_TYPE_2D;
+    image_info.extent.width      = desc.width;
+    image_info.extent.height     = desc.height;
+    image_info.extent.depth      = 1;
+    image_info.mipLevels         = 1;
+    image_info.arrayLayers       = 1;
+    image_info.format            = VK_FORMAT_R8G8B8A8_SRGB;
+    image_info.tiling            = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage =
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.samples     = VK_SAMPLE_COUNT_1_BIT;
+
+    VmaAllocationCreateInfo image_alloc_info = {};
+    image_alloc_info.usage                   = VMA_MEMORY_USAGE_AUTO;
+
+    vulkan_texture tex_data;
+    if (vmaCreateImage(_allocator,
+                       &image_info,
+                       &image_alloc_info,
+                       &tex_data.image,
+                       &tex_data.allocation,
+                       nullptr) != VK_SUCCESS) {
+        log()->error("vulkan", "failed to create texture image.");
+        vmaDestroyBuffer(_allocator, staging_buffer, staging_allocation);
+        return;
+    }
+
+    // 3. transfer commands
+    {
+        std::lock_guard lock(_mesh_mutex);
+
+        vk::CommandBufferAllocateInfo alloc_info {
+            .commandPool        = *_transfer_command_pool,
+            .level              = vk::CommandBufferLevel::ePrimary,
+            .commandBufferCount = 1,
+        };
+
+        vk::raii::CommandBuffers cmd_buffers(_device, alloc_info);
+        vk::raii::CommandBuffer& cmd = cmd_buffers[0];
+
+        vk::CommandBufferBeginInfo begin_info {
+            .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit,
+        };
+        cmd.begin(begin_info);
+
+        // transition undefined -> transfer_dst
+        vk::ImageMemoryBarrier barrier {
+            .srcAccessMask       = vk::AccessFlagBits::eNone,
+            .dstAccessMask       = vk::AccessFlagBits::eTransferWrite,
+            .oldLayout           = vk::ImageLayout::eUndefined,
+            .newLayout           = vk::ImageLayout::eTransferDstOptimal,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image               = tex_data.image,
+            .subresourceRange    = {
+                   .aspectMask     = vk::ImageAspectFlagBits::eColor,
+                   .baseMipLevel   = 0,
+                   .levelCount     = 1,
+                   .baseArrayLayer = 0,
+                   .layerCount     = 1,
+            }};
+
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+                            vk::PipelineStageFlagBits::eTransfer,
+                            vk::DependencyFlags(),
+                            nullptr,
+                            nullptr,
+                            barrier);
+
+        // copy buffer to image
+        vk::BufferImageCopy region {
+            .bufferOffset      = 0,
+            .bufferRowLength   = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource =
+                {
+                    .aspectMask     = vk::ImageAspectFlagBits::eColor,
+                    .mipLevel       = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {desc.width, desc.height, 1}};
+
+        cmd.copyBufferToImage(staging_buffer,
+                              tex_data.image,
+                              vk::ImageLayout::eTransferDstOptimal,
+                              region);
+
+        // transition transfer_dst -> shader_read_only
+        barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+        barrier.oldLayout     = vk::ImageLayout::eTransferDstOptimal;
+        barrier.newLayout     = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+        cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                            vk::PipelineStageFlagBits::eFragmentShader,
+                            vk::DependencyFlags(),
+                            nullptr,
+                            nullptr,
+                            barrier);
+
+        cmd.end();
+
+        vk::SubmitInfo submit_info {};
+        submit_info.setCommandBuffers(*cmd);
+        _graphics_queue.submit(submit_info, nullptr);
+        _graphics_queue.waitIdle();
+    }
+
+    vmaDestroyBuffer(_allocator, staging_buffer, staging_allocation);
+
+    // 4. view and sampler
+    vk::ImageViewCreateInfo view_info {
+        .image            = tex_data.image,
+        .viewType         = vk::ImageViewType::e2D,
+        .format           = vk::Format::eR8G8B8A8Srgb,
+        .subresourceRange = {
+            .aspectMask     = vk::ImageAspectFlagBits::eColor,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        }};
+    tex_data.view = vk::raii::ImageView(_device, view_info);
+
+    vk::SamplerCreateInfo sampler_info {
+        .magFilter               = vk::Filter::eLinear,
+        .minFilter               = vk::Filter::eLinear,
+        .mipmapMode              = vk::SamplerMipmapMode::eLinear,
+        .addressModeU            = vk::SamplerAddressMode::eRepeat,
+        .addressModeV            = vk::SamplerAddressMode::eRepeat,
+        .addressModeW            = vk::SamplerAddressMode::eRepeat,
+        .anisotropyEnable        = VK_TRUE,
+        .maxAnisotropy           = 16.0f,
+        .compareEnable           = VK_FALSE,
+        .compareOp               = vk::CompareOp::eAlways,
+        .borderColor             = vk::BorderColor::eIntOpaqueBlack,
+        .unnormalizedCoordinates = VK_FALSE,
+    };
+    tex_data.sampler = vk::raii::Sampler(_device, sampler_info);
+
+    // 5. save
+    {
+        std::lock_guard lock(_texture_mutex);
+        _textures[handle] = std::move(tex_data);
+    }
+
+    // 6. update global descriptors
+    for (size_t i = 0; i < _global_descriptor_sets.size(); i++) {
+        vk::DescriptorImageInfo image_info_write {
+            .sampler     = *_textures[handle].sampler,
+            .imageView   = *_textures[handle].view,
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+        };
+
+        vk::WriteDescriptorSet descriptor_write {
+            .dstSet          = *_global_descriptor_sets[i],
+            .dstBinding      = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType  = vk::DescriptorType::eCombinedImageSampler,
+            .pImageInfo      = &image_info_write,
+        };
+
+        _device.updateDescriptorSets(descriptor_write, nullptr);
+    }
+}
+
+auto vulkan_backend_system::destroy_texture(texture_handle handle) -> void {
+    // wait for the gpu to finish using the texture before destroying it.
+    // ideally, we'd use a deferred deletion queue instead of blocking the cpu.
+    if (*_device)
+        _device.waitIdle();
+
+    std::lock_guard lock(_texture_mutex);
+    auto            it = _textures.find(handle);
+    if (it != _textures.end()) {
+        it->second.view.clear();
+        it->second.sampler.clear();
+        vmaDestroyImage(_allocator, it->second.image, it->second.allocation);
+        _textures.erase(it);
+    }
+}
+auto vulkan_backend_system::create_mesh(mesh_handle               handle,
                                         std::span<const vertex>   vertices,
                                         std::span<const uint32_t> indices)
     -> void {
-    log()->trace("vulkan", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
+    log()->trace("vulkan",
+                 "creating mesh ({} vertices, {} indices)",
+                 vertices.size(),
+                 indices.size());
     if (vertices.empty() || handle == INVALID_MESH_HANDLE)
         return;
 
@@ -1272,16 +1531,20 @@ auto vulkan_backend_system::create_mesh(mesh_handle handle,
 }
 
 auto vulkan_backend_system::destroy_mesh(mesh_handle handle) -> void {
-    if (handle == INVALID_MESH_HANDLE) return;
+    if (handle == INVALID_MESH_HANDLE)
+        return;
 
     std::lock_guard lock(_mesh_mutex);
-    auto it = _meshes.find(handle);
+    auto            it = _meshes.find(handle);
     if (it != _meshes.end()) {
         if (it->second.buffer) {
-            vmaDestroyBuffer(_allocator, it->second.buffer, it->second.allocation);
+            vmaDestroyBuffer(
+                _allocator, it->second.buffer, it->second.allocation);
         }
         if (it->second.index_buffer) {
-            vmaDestroyBuffer(_allocator, it->second.index_buffer, it->second.index_allocation);
+            vmaDestroyBuffer(_allocator,
+                             it->second.index_buffer,
+                             it->second.index_allocation);
         }
         _meshes.erase(it);
         log()->trace("vulkan", "destroyed mesh {}", handle);

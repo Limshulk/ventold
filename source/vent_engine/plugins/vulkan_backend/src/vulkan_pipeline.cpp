@@ -62,7 +62,7 @@ vulkan_pipeline::vulkan_pipeline(
         .stride    = sizeof(vent::vertex),
         .inputRate = vk::VertexInputRate::eVertex};
 
-    std::array<vk::VertexInputAttributeDescription, 2> attribute_descriptions = {
+    std::array<vk::VertexInputAttributeDescription, 3> attribute_descriptions = {
         {{.location = 0,
           .binding  = 0,
           .format   = vk::Format::eR32G32B32Sfloat,
@@ -70,7 +70,11 @@ vulkan_pipeline::vulkan_pipeline(
          {.location = 1,
           .binding  = 0,
           .format   = vk::Format::eR32G32B32Sfloat,
-          .offset   = offsetof(vent::vertex, color)}}};
+          .offset   = offsetof(vent::vertex, color)},
+         {.location = 2,
+          .binding  = 0,
+          .format   = vk::Format::eR32G32Sfloat,
+          .offset   = offsetof(vent::vertex, u)}}};
 
     vk::PipelineVertexInputStateCreateInfo vertex_input_info {
         .vertexBindingDescriptionCount = 1,
