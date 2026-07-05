@@ -16,6 +16,7 @@
 #include <_vent/renderer/render_command.hpp>
 #include <_vent/system/system_base.hpp>
 
+#include <atomic>
 #include <mutex>
 
 namespace vent {
@@ -65,13 +66,19 @@ public:
     auto end_frame(ic_window* window) -> void override;
 
     auto create_graphics_pipeline(const pipeline_desc& desc)
-        -> std::unique_ptr<ic_pipeline> override;
+        -> pipeline_handle override;
 
-    auto bind_pipeline(ic_pipeline* pipeline) -> void override;
+    auto destroy_graphics_pipeline(pipeline_handle handle) -> void override;
+
+    auto bind_pipeline(pipeline_handle handle) -> void override;
+
+    auto update_global_uniforms(const uniform_buffer_object& ubo) -> void override;
 
     auto create_mesh(std::span<const vertex>   vertices,
                      std::span<const uint32_t> indices = {})
         -> mesh_handle override;
+
+    auto destroy_mesh(mesh_handle handle) -> void override;
 
     auto get_command_list() -> command_list& override;
     auto submit_command_lists(std::span<command_list* const> lists)
@@ -87,6 +94,8 @@ private:
     subscription_id         _window_sub {};  ///< window.created subscription.
     subscription_id         _window_destroyed_sub {};  ///< window.destroyed
                                                        ///< subscription.
+    std::atomic<mesh_handle>     _next_mesh_handle {1};
+    std::atomic<pipeline_handle> _next_pipeline_handle {1};
     i_device* _device = nullptr;                       ///< gpu device.
 
 

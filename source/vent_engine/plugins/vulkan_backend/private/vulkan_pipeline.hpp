@@ -8,26 +8,29 @@
 
 #include <_vent/asset/shader.hpp>
 
-#include <renderer/interfaces/i_pipeline.hpp>
+#include <_vent/renderer/pipeline_desc.hpp>
 
 #include <vulkan/vulkan_raii.hpp>
 
 namespace vent {
 
-class vulkan_pipeline final : public i_pipeline {
+class vulkan_pipeline final {
 public:
     vulkan_pipeline(const vk::raii::Device& device,
+                    const vk::raii::DescriptorSetLayout& global_descriptor_set_layout,
                     const pipeline_desc&    desc,
                     vk::Format              swapchain_image_format,
                     vk::Extent2D            swapchain_extent);
-    ~vulkan_pipeline() override = default;
+    ~vulkan_pipeline() = default;
 
     auto get_pipeline() const -> const vk::raii::Pipeline& { return _pipeline; }
     auto get_pipeline_layout() const -> const vk::raii::PipelineLayout& {
         return _pipeline_layout;
     }
 
+
 private:
+
     vk::raii::PipelineLayout _pipeline_layout = nullptr;
     vk::raii::Pipeline       _pipeline        = nullptr;
 

@@ -10,6 +10,7 @@
 
 #include <_vent/vent_sdk.hpp>
 #include <_vent/renderer/vertex.hpp>
+#include <_vent/renderer/pipeline_desc.hpp>
 #include <_vent/renderer/render_command.hpp>
 
 #include <memory>
@@ -19,8 +20,9 @@ namespace vent {
 
 // forward declarations
 class ic_window;
-class ic_pipeline;
-struct pipeline_desc;
+
+
+struct uniform_buffer_object;
 
 class ic_renderer {
 public:
@@ -55,11 +57,19 @@ public:
 
     /// @brief create a graphics pipeline from the given description.
     virtual auto create_graphics_pipeline(const pipeline_desc& desc)
-        -> std::unique_ptr<ic_pipeline> = 0;
+        -> pipeline_handle = 0;
+
+    /// @brief destroy a graphics pipeline.
+    /// @param handle the pipeline to destroy.
+    virtual auto destroy_graphics_pipeline(pipeline_handle handle) -> void = 0;
 
     /// @brief bind a graphics pipeline for the current frame.
-    /// @param pipeline the pipeline to bind.
-    virtual auto bind_pipeline(ic_pipeline* pipeline) -> void = 0;
+    /// @param handle the pipeline handle to bind.
+    virtual auto bind_pipeline(pipeline_handle handle) -> void = 0;
+
+    /// @brief update global uniform buffer data.
+    /// @param ubo the uniform data to pass to the renderer.
+    virtual auto update_global_uniforms(const uniform_buffer_object& ubo) -> void = 0;
 
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -71,6 +81,10 @@ public:
     virtual auto create_mesh(std::span<const vertex>   vertices,
                              std::span<const uint32_t> indices = {})
         -> mesh_handle = 0;
+
+    /// @brief destroy a mesh.
+    /// @param handle the mesh to destroy.
+    virtual auto destroy_mesh(mesh_handle handle) -> void = 0;
 
     // --- rendering submission ---
     // —————————————————————————————————————————————————————————————————————————

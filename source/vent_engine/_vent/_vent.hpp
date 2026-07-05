@@ -24,8 +24,8 @@
 #include <_vent/log/ic_log.hpp>
 #include <_vent/platform/ic_platform.hpp>
 #include <_vent/platform/ic_window.hpp>
-#include <_vent/renderer/ic_pipeline.hpp>
 #include <_vent/renderer/ic_renderer.hpp>
+#include <_vent/renderer/pipeline_desc.hpp>
 
 // --- role interfaces (ir_*) ---
 #include <_vent/core/ir_client.hpp>
@@ -36,6 +36,7 @@
 #include <_vent/asset/shader.hpp>
 #include <_vent/math/math.hpp>
 #include <_vent/renderer/render_command.hpp>
+#include <_vent/renderer/uniform_buffer.hpp>
 #include <_vent/renderer/vertex.hpp>
 #include <_vent/system/system_base.hpp>
 #include <_vent/system/system_initialization_status.hpp>

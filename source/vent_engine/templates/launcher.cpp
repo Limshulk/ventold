@@ -99,6 +99,7 @@ inline auto get_lib_symbol(lib_handle handle, const char* name) -> T {
 // —————————————————————————————————————————————————————————————————————————————
 
 auto main(int argc, char** argv) -> int {
+    TIC;
     std::string engine_path = std::string("./") + SHARED_LIB_PREFIX +
                               ENGINE_LIB_BASE + SHARED_LIB_SUFFIX;
 
@@ -144,5 +145,6 @@ auto main(int argc, char** argv) -> int {
 
     std::print("[launcher] exiting with: {}\n", result);
 
+    TOC;
     return result;
 }

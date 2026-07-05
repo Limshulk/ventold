@@ -12,19 +12,17 @@
 
 namespace vent {
 
-plugin_manager::~plugin_manager() {
-    unload_all();
-}
-
 auto plugin_manager::load(std::string_view name, std::string_view path_prefix)
     -> bool {
     std::lock_guard lock(_mutex);
 
     // check if already loaded.
     std::string name_str(name);
-    log()->trace("plugin_manager", "checking if plugin '{}' is already loaded.", name);
+    log()->trace(
+        "plugin_manager", "checking if plugin '{}' is already loaded.", name);
     if (_plugins.contains(name_str)) {
-        log()->trace("plugin_manager", "plugin '{}' is already loaded, skipping.", name);
+        log()->trace(
+            "plugin_manager", "plugin '{}' is already loaded, skipping.", name);
         return true;  // it's in memory already.
     }
 
@@ -57,7 +55,8 @@ auto plugin_manager::unload(std::string_view name) -> bool {
     log()->trace("plugin_manager", "attempting to unload plugin '{}'", name);
     auto it = _plugins.find(std::string(name));
     if (it == _plugins.end()) {
-        log()->debug("plugin_manager", "plugin '{}' not found, cannot unload.", name);
+        log()->debug(
+            "plugin_manager", "plugin '{}' not found, cannot unload.", name);
         return false;
     }
 
@@ -73,7 +72,7 @@ auto plugin_manager::unload(std::string_view name) -> bool {
 
 auto plugin_manager::unload_all() -> void {
     std::lock_guard lock(_mutex);
-    
+
     log()->trace("plugin_manager", "unloading all plugins...");
 
     for (auto& [name, handle] : _plugins) {

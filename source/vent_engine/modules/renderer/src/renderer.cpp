@@ -11,7 +11,7 @@
 #include <core/interfaces/i_system_registry.hpp>
 #include <core/system/registration.hpp>
 
-#include <renderer/interfaces/i_pipeline.hpp>
+
 #include <platform/interfaces/i_window.hpp>
 
 namespace vent {
@@ -176,17 +176,29 @@ auto renderer_system::end_frame(ic_window* window) -> void {
 }
 
 auto renderer_system::create_graphics_pipeline(const pipeline_desc& desc)
-    -> std::unique_ptr<ic_pipeline> {
+    -> pipeline_handle {
     log()->trace("renderer", "creating graphics pipeline");
-    if (_backend) {
-        return _backend->create_graphics_pipeline(desc);
-    }
-    return nullptr;
+    if (!_backend) return INVALID_PIPELINE_HANDLE;
+    pipeline_handle handle = _next_pipeline_handle.fetch_add(1);
+    _backend->create_graphics_pipeline(handle, desc);
+    return handle;
 }
 
-auto renderer_system::bind_pipeline(ic_pipeline* pipeline) -> void {
+auto renderer_system::destroy_graphics_pipeline(pipeline_handle handle) -> void {
+    if (_backend && handle != INVALID_PIPELINE_HANDLE) {
+        _backend->destroy_graphics_pipeline(handle);
+    }
+}
+
+auto renderer_system::bind_pipeline(pipeline_handle handle) -> void {
     if (_backend) {
-        _backend->bind_pipeline(pipeline);
+        _backend->bind_pipeline(handle);
+    }
+}
+
+auto renderer_system::update_global_uniforms(const uniform_buffer_object& ubo) -> void {
+    if (_backend) {
+        _backend->update_global_uniforms(ubo);
     }
 }
 
@@ -194,9 +206,17 @@ auto renderer_system::create_mesh(std::span<const vertex>   vertices,
                                   std::span<const uint32_t> indices)
     -> mesh_handle {
     log()->trace("renderer", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
-    if (!_backend)
+    if (!_backend || vertices.empty())
         return INVALID_MESH_HANDLE;
-    return _backend->create_mesh(vertices, indices);
+    mesh_handle handle = _next_mesh_handle.fetch_add(1);
+    _backend->create_mesh(handle, vertices, indices);
+    return handle;
+}
+
+auto renderer_system::destroy_mesh(mesh_handle handle) -> void {
+    if (_backend && handle != INVALID_MESH_HANDLE) {
+        _backend->destroy_mesh(handle);
+    }
 }
 
 auto renderer_system::get_command_list() -> command_list& {
@@ -225,7 +245,43 @@ auto renderer_system::submit_command_lists(std::span<command_list* const> lists)
         return a.key < b.key;
     });
 
-    _backend->execute_packets(all_packets);
+    if (all_packets.empty()) {
+        for (auto* list : lists) {
+            list->clear();
+        }
+        return;
+    }
+
+    // chunk packets.
+    // we divide the massive list of draw commands into smaller manageable
+    // chunks. a chunk size of 256 is a reasonable default for keeping thread
+    // overhead low while maximizing parallelism.
+    const usize chunk_size = 256;
+    const usize num_chunks = (all_packets.size() + chunk_size - 1) / chunk_size;
+
+    std::vector<vent::task> tasks;
+    tasks.reserve(num_chunks);
+
+    // spawn a job for every chunk. the job system will distribute these
+    // across all available cpu cores dynamically.
+    for (usize i = 0; i < num_chunks; ++i) {
+        usize start = i * chunk_size;
+        usize end   = (std::min) (start + chunk_size, all_packets.size());
+        auto  chunk = std::span<const render_packet>(all_packets.data() + start, end - start);
+
+        tasks.push_back(job()->submit([this, chunk]() -> void* {
+            return _backend->record_command_chunk(chunk);
+        }));
+    }
+
+    // wait for all jobs to finish and gather command buffers.
+    std::vector<void*> secondary_cmds;
+    secondary_cmds.reserve(num_chunks);
+    for (auto& task : tasks) {
+        secondary_cmds.push_back(task.get<void*>());
+    }
+
+    _backend->execute_recorded_commands(secondary_cmds);
 
     for (auto* list : lists) {
         list->clear();

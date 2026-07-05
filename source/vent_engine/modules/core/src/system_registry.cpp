@@ -68,8 +68,9 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
         regular_systems.size());
     for (const auto& name : bootstrap_systems) {
         auto* entry = get_entry(name);
-        auto* impl = entry ? dynamic_cast<ir_bootstrap*>(entry->instance.get()) : nullptr;
-        i32 p = impl ? impl->bootstrap_priority() : 0;
+        auto* impl  = entry ? dynamic_cast<ir_bootstrap*>(entry->instance.get())
+                            : nullptr;
+        i32   p     = impl ? impl->bootstrap_priority() : 0;
         log()->trace("system_registry", "  - bs: {}. priority: {}", name, p);
     }
     for (const auto& name : regular_systems) {
@@ -197,9 +198,9 @@ auto system_registry::initialize_all(const engine_config& config) -> bool {
     }
 
     log()->info("system_registry",
-                 "{} system(s) initialized successfully, {} awaiting events.",
-                 result.ready,
-                 result.awaiting);
+                "{} system(s) initialized successfully, {} awaiting events.",
+                result.ready,
+                result.awaiting);
 
     // cache role interfaces for main loop.
     cache_role_interfaces();
@@ -294,9 +295,6 @@ auto system_registry::shutdown_all() -> void {
 
 auto system_registry::get_interface_ptr(std::type_info const& interface_type)
     -> void* {
-    // TODO(#8): type_info::name() string comparison is a workaround for
-    // cross-DLL RTTI on Windows. The proper fix is a string-based interface
-    // ID system where each interface declares a static constexpr ID string.
     for (const auto& [type_idx, data] : _interfaces) {
         if (std::string_view(type_idx.name()) == interface_type.name() ||
             type_idx == std::type_index(interface_type)) {
@@ -308,7 +306,6 @@ auto system_registry::get_interface_ptr(std::type_info const& interface_type)
 
 auto system_registry::get_interface_ptr_if_ready(
     std::type_info const& interface_type) -> void* {
-    // TODO(#8): Same here, type_info::name() string comparison is a workaround.
     for (const auto& [type_idx, data] : _interfaces) {
         if (std::string_view(type_idx.name()) == interface_type.name() ||
             type_idx == std::type_index(interface_type)) {

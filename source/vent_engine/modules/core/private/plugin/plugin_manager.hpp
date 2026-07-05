@@ -24,10 +24,8 @@ namespace vent {
 /// thread-safe. handles only library i/o, not system creation.
 class plugin_manager {
 public:
-    plugin_manager() = default;
-
-    /// @brief destructor unloads all plugins.
-    ~plugin_manager();
+    plugin_manager()  = default;
+    ~plugin_manager() = default;
 
     VENT_NO_COPY_MOVE(plugin_manager);
 

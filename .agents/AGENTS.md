@@ -50,6 +50,12 @@ This file needs to be kept up-to-date if any changes occur that require addition
 - heavily comment any non-obvious optimizations or trade-offs made for performance reasons.
 - always use of `constexpr` or `consteval` and compile-time computations where possible to reduce runtime overhead. 
 
+### Renderer
+- the renderer abstracts ALL api calls. 
+- NEVER is ANY api-specific code allowed in client / other modules. only allowed in modules with api-specific names (e.g. `vulkan_backend_system`).
+- ideally, the client developer NEVER has to even look into renderer modules and NEVER has to use any renderer calls.
+- the frontend (module: renderer) has the central authority. backends just implement the frontend's api. no logic must be implemented by the backend except what is required to implement the frontend's api.
+
 ### Comments
 - all lowercase, ending with period.
 - every file should have a file header specified in `/.vscode/vent.code-snippets`.

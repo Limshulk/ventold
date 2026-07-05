@@ -7,7 +7,7 @@
 
 #include <_vent/asset/shader.hpp>
 
-#include <_vent/renderer/ic_pipeline.hpp>
+
 #include <_vent/math/math.hpp>
 
 #include <memory>
@@ -75,27 +75,27 @@ public:
             "client", "math library test: view and proj matrices generated!");
 
         vent::log()->trace("client",
-                          "multi-window test initialized with {} windows",
-                          _windows.size());
+                           "multi-window test initialized with {} windows",
+                           _windows.size());
 
-        // test asset system
+        // test asset system.
         vent::asset()->mount("app://", ".");
         vent::shader_asset* shader =
             vent::asset()->load_shader("app://assets/shaders/shader.slang.spv");
         if (shader) {
             vent::log()->trace("client",
-                              "successfully loaded shader ({} bytes)!",
-                              shader->spirv_bytecode.size() *
-                                  sizeof(vent::u32));
+                               "successfully loaded shader ({} bytes)!",
+                               shader->spirv_bytecode.size() *
+                                   sizeof(vent::u32));
 
             vent::pipeline_desc desc;
-            desc.shader = shader;
-            // the default entry points are "vertMain" and "fragMain", which
-            // matches our slang shader.
-            _pipeline = vent::renderer()->create_graphics_pipeline(desc);
-            if (_pipeline) {
+            desc.shader         = shader;
+            desc.vertex_entry   = "vertMain";
+            desc.fragment_entry = "fragMain";
+            _pipeline   = vent::renderer()->create_graphics_pipeline(desc);
+            if (_pipeline != vent::INVALID_PIPELINE_HANDLE) {
                 vent::log()->trace("client",
-                                  "successfully created graphics pipeline!");
+                                   "successfully created graphics pipeline!");
             } else {
                 vent::log()->error("client",
                                    "failed to create graphics pipeline!");
@@ -134,11 +134,36 @@ public:
             _windows.back()->show();
         }
 
+        // compute matrices for the uniform buffer.
+        vent::math::mat4 model = vent::math::rotate_z(
+            _elapsed * vent::math::radians(90.0f)
+        );
+
+        vent::math::mat4 view = vent::math::look_at(
+            vent::math::vec3(2.0f, 2.0f, 2.0f),
+            vent::math::vec3(0.0f, 0.0f, 0.0f),
+            vent::math::vec3(0.0f, 0.0f, 1.0f)
+        );
+
+        vent::math::mat4 proj = vent::math::perspective(
+            vent::math::radians(45.0f), 1280.0f / 720.0f, 0.1f, 10.0f
+        );
+
+        vent::uniform_buffer_object ubo = {
+            .model = model,
+            .view = view,
+            .proj = proj
+        };
+
         // render to all windows
         for (auto* window : _windows) {
             if (vent::renderer()->begin_frame(window)) {
-                if (_pipeline && _triangle_mesh != vent::INVALID_MESH_HANDLE) {
-                    vent::renderer()->bind_pipeline(_pipeline.get());
+
+                // update uniforms per frame (the active swapchain guarantees correct buffering).
+                vent::renderer()->update_global_uniforms(ubo);
+
+                if (_pipeline != vent::INVALID_PIPELINE_HANDLE && _triangle_mesh != vent::INVALID_MESH_HANDLE) {
+                    vent::renderer()->bind_pipeline(_pipeline);
 
                     auto& cmd_list = vent::renderer()->get_command_list();
                     cmd_list.draw_mesh(_triangle_mesh, 0);
@@ -180,7 +205,7 @@ public:
 
 private:
     std::vector<vent::ic_window*>      _windows;
-    std::unique_ptr<vent::ic_pipeline> _pipeline;
+    vent::pipeline_handle _pipeline = vent::INVALID_PIPELINE_HANDLE;
     vent::mesh_handle _triangle_mesh = vent::INVALID_MESH_HANDLE;
     vent::u64         _frame_count   = 0;
     vent::f64         _elapsed       = 0.0;

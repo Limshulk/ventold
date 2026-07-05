@@ -11,7 +11,7 @@
 
 #include <_vent/accessors.hpp>
 #include <_vent/job/ic_job.hpp>
-#include <_vent/renderer/ic_pipeline.hpp>
+#include <_vent/renderer/uniform_buffer.hpp>
 
 #include <core/system/registration.hpp>
 
@@ -125,6 +125,8 @@ auto vulkan_backend_system::initialize() -> bool {
         return false;
     }
 
+    create_global_uniforms();
+
     log()->info("vulkan", "vulkan backend initialized.");
     return true;
 }
@@ -153,6 +155,8 @@ auto vulkan_backend_system::shutdown() -> void {
         }
         _meshes.clear();
     }
+    
+    destroy_global_uniforms();
 
     if (_allocator) {
         vmaDestroyAllocator(_allocator);
@@ -767,36 +771,167 @@ auto vulkan_backend_system::end_frame(ic_window* window) -> void {
     }
 }
 
-auto vulkan_backend_system::create_graphics_pipeline(const pipeline_desc& desc)
-    -> std::unique_ptr<i_pipeline> {
+auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle, const pipeline_desc& desc) -> void {
+    if (handle == INVALID_PIPELINE_HANDLE) return;
 
-    // a graphics pipeline in vulkan requires knowing the format of the render
-    // target ahead of time. if we don't have any surfaces, we can't create one.
-    if (_surfaces.empty()) {
-        log()->error("vulkan",
-                     "cannot create pipeline: no surfaces exist to determine "
-                     "image format.");
-        return nullptr;
+    if (_surfaces.empty() || !_surfaces[0].swapchain) {
+        log()->error("vulkan", "cannot create pipeline: no swapchain available for format/extent");
+        return;
     }
 
-    // todo: multi-window swapchain selection.
-    // for now, grab the format and extent from the first swapchain.
-    // in a multi-window setup, we might need a more robust way to match
-    // pipelines to swapchains.
     vk::Format   format = _surfaces[0].swapchain->get_image_format();
     vk::Extent2D extent = _surfaces[0].swapchain->get_extent();
 
-    return std::make_unique<vulkan_pipeline>(_device, desc, format, extent);
+    _pipelines[handle] = std::make_unique<vulkan_pipeline>(
+        _device, get_global_descriptor_set_layout(), desc, format, extent);
 }
 
-auto vulkan_backend_system::bind_pipeline(ic_pipeline* pipeline) -> void {
-    if (!pipeline) {
-        log()->warn("vulkan", "bind_pipeline called with null pipeline.");
+auto vulkan_backend_system::destroy_graphics_pipeline(pipeline_handle handle) -> void {
+    if (handle == INVALID_PIPELINE_HANDLE) return;
+    _pipelines.erase(handle);
+    if (_active_pipeline) {
+        bool found = false;
+        for (const auto& [id, pipe] : _pipelines) {
+            if (pipe.get() == _active_pipeline) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            _active_pipeline = nullptr;
+        }
+    }
+}
+
+auto vulkan_backend_system::bind_pipeline(pipeline_handle handle) -> void {
+    if (handle == INVALID_PIPELINE_HANDLE) {
+        _active_pipeline = nullptr;
+        return;
+    }
+    
+    auto it = _pipelines.find(handle);
+    if (it != _pipelines.end()) {
+        _active_pipeline = it->second.get();
+    } else {
+        _active_pipeline = nullptr;
+    }
+}
+
+auto vulkan_backend_system::create_global_uniforms() -> void {
+    // 1. descriptor set layout
+    vk::DescriptorSetLayoutBinding ubo_binding {
+        .binding            = 0,
+        .descriptorType     = vk::DescriptorType::eUniformBuffer,
+        .descriptorCount    = 1,
+        .stageFlags         = vk::ShaderStageFlagBits::eVertex,
+        .pImmutableSamplers = nullptr,
+    };
+
+    vk::DescriptorSetLayoutCreateInfo layout_info {
+        .bindingCount = 1,
+        .pBindings    = &ubo_binding,
+    };
+    _global_descriptor_set_layout =
+        vk::raii::DescriptorSetLayout(_device, layout_info);
+
+    // 2. create buffers
+    const u32 max_frames = 3; // MAX_FRAMES_IN_FLIGHT assumption
+    VkDeviceSize buffer_size = sizeof(uniform_buffer_object);
+
+    _global_uniform_buffers.resize(max_frames);
+    _global_uniform_allocations.resize(max_frames);
+    _global_uniform_mapped.resize(max_frames);
+
+    for (size_t i = 0; i < max_frames; i++) {
+        VkBufferCreateInfo buffer_info {
+            .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size        = buffer_size,
+            .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        };
+
+        VmaAllocationCreateInfo alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+        };
+
+        VmaAllocationInfo alloc_result_info;
+
+        vmaCreateBuffer(_allocator,
+                        &buffer_info,
+                        &alloc_info,
+                        &_global_uniform_buffers[i],
+                        &_global_uniform_allocations[i],
+                        &alloc_result_info);
+
+        _global_uniform_mapped[i] = alloc_result_info.pMappedData;
     }
 
-    // just store the active pipeline. it will be physically bound to the command
-    // buffer when the background threads record the draw commands later.
-    _active_pipeline = static_cast<vulkan_pipeline*>(pipeline);
+    // 3. descriptor pool
+    vk::DescriptorPoolSize pool_size {
+        .type            = vk::DescriptorType::eUniformBuffer,
+        .descriptorCount = max_frames,
+    };
+
+    vk::DescriptorPoolCreateInfo pool_info {
+        .flags         = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+        .maxSets       = max_frames,
+        .poolSizeCount = 1,
+        .pPoolSizes    = &pool_size,
+    };
+    _descriptor_pool = vk::raii::DescriptorPool(_device, pool_info);
+
+    // 4. allocate descriptor sets
+    std::vector<vk::DescriptorSetLayout> layouts(max_frames, *_global_descriptor_set_layout);
+    vk::DescriptorSetAllocateInfo alloc_info {
+        .descriptorPool     = *_descriptor_pool,
+        .descriptorSetCount = max_frames,
+        .pSetLayouts        = layouts.data(),
+    };
+    
+    _global_descriptor_sets = vk::raii::DescriptorSets(_device, alloc_info);
+
+    // 5. write descriptor sets
+    for (size_t i = 0; i < max_frames; i++) {
+        vk::DescriptorBufferInfo buffer_info {
+            .buffer = _global_uniform_buffers[i],
+            .offset = 0,
+            .range  = sizeof(uniform_buffer_object),
+        };
+
+        vk::WriteDescriptorSet descriptor_write {
+            .dstSet           = *_global_descriptor_sets[i],
+            .dstBinding       = 0,
+            .dstArrayElement  = 0,
+            .descriptorCount  = 1,
+            .descriptorType   = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo      = &buffer_info,
+        };
+
+        _device.updateDescriptorSets(descriptor_write, nullptr);
+    }
+}
+
+auto vulkan_backend_system::destroy_global_uniforms() -> void {
+    _global_descriptor_sets.clear();
+    _descriptor_pool = nullptr;
+    _global_descriptor_set_layout = nullptr;
+
+    for (size_t i = 0; i < _global_uniform_buffers.size(); i++) {
+        vmaDestroyBuffer(_allocator, _global_uniform_buffers[i], _global_uniform_allocations[i]);
+    }
+    _global_uniform_buffers.clear();
+    _global_uniform_allocations.clear();
+    _global_uniform_mapped.clear();
+}
+
+auto vulkan_backend_system::update_global_uniforms(const uniform_buffer_object& ubo) -> void {
+    if (!_active_swapchain || _global_uniform_mapped.empty()) return;
+
+    u32 frame = _active_swapchain->get_current_frame_index();
+    if (frame < _global_uniform_mapped.size() && _global_uniform_mapped[frame]) {
+        std::memcpy(_global_uniform_mapped[frame], &ubo, sizeof(ubo));
+    }
 }
 
 auto vulkan_backend_system::get_thread_context() -> thread_command_context {
@@ -861,153 +996,133 @@ auto vulkan_backend_system::reset_thread_contexts(ic_window* window,
     _pending_contexts[frame_index][window].clear();
 }
 
-auto vulkan_backend_system::execute_packets(
-    std::span<const render_packet> packets) -> void {
+auto vulkan_backend_system::record_command_chunk(
+    std::span<const render_packet> chunk) -> void* {
 
-    if (!_active_swapchain || packets.empty()) {
-        return;
+    if (!_active_swapchain || chunk.empty()) {
+        return nullptr;
     }
 
     u32        current_frame  = _active_swapchain->get_current_frame_index();
     ic_window* current_window = _active_window;
 
-    // chunk packets.
-    // we divide the massive list of draw commands into smaller manageable
-    // chunks. a chunk size of 256 is a reasonable default for keeping thread
-    // overhead low while maximizing parallelism.
-    const usize chunk_size = 256;
-    const usize num_chunks = (packets.size() + chunk_size - 1) / chunk_size;
+    auto ctx = get_thread_context();
+    vk::raii::CommandBuffer* cmd = nullptr;
 
-    std::vector<vent::task> tasks;
-    tasks.reserve(num_chunks);
+    if (ctx.used_buffers < ctx.buffers.size()) {
+        cmd = &ctx.buffers[ctx.used_buffers++];
+    } else {
+        vk::CommandBufferAllocateInfo alloc_info {
+            .commandPool        = *ctx.pool,
+            .level              = vk::CommandBufferLevel::eSecondary,
+            .commandBufferCount = 1,
+        };
+        ctx.buffers.push_back(std::move(
+            vk::raii::CommandBuffers(_device, alloc_info).front()));
+        cmd = &ctx.buffers[ctx.used_buffers++];
+    }
 
-    // spawn a job for every chunk. the job system will distribute these
-    // across all available cpu cores dynamically.
-    for (usize i = 0; i < num_chunks; ++i) {
-        usize start = i * chunk_size;
-        usize end   = (std::min) (start + chunk_size, packets.size());
-        auto  chunk = packets.subspan(start, end - start);
+    vk::Format format = _active_swapchain->get_image_format();
+    vk::CommandBufferInheritanceRenderingInfo inheritance_rendering {
+        .colorAttachmentCount    = 1,
+        .pColorAttachmentFormats = &format,
+        .rasterizationSamples    = vk::SampleCountFlagBits::e1,
+    };
+    vk::CommandBufferInheritanceInfo inheritance {
+        .pNext = &inheritance_rendering,
+    };
+    vk::CommandBufferBeginInfo begin_info {
+        .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit |
+                 vk::CommandBufferUsageFlagBits::eRenderPassContinue,
+        .pInheritanceInfo = &inheritance,
+    };
 
-        tasks.push_back(job()->submit([this,
-                                       chunk,
-                                       current_window,
-                                       current_frame]() -> vk::CommandBuffer {
-            // each worker thread claims a unique command pool for itself
-            // this entirely avoids locking inside vulkan.
-            auto ctx = get_thread_context();
+    cmd->begin(begin_info);
 
-            vk::raii::CommandBuffer* cmd = nullptr;
+    if (_active_pipeline) {
+        cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
+                          _active_pipeline->get_pipeline());
+                          
+        cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                                _active_pipeline->get_pipeline_layout(),
+                                0,
+                                {*_global_descriptor_sets[current_frame]},
+                                {});
+    }
 
-            // grab a command buffer from our context, or allocate a new one
-            // if this context doesn't have enough pre-allocated yet.
-            if (ctx.used_buffers < ctx.buffers.size()) {
-                cmd = &ctx.buffers[ctx.used_buffers++];
+    vk::Extent2D extent = _active_swapchain->get_extent();
+    vk::Viewport viewport {.x      = 0.0f,
+                           .y      = 0.0f,
+                           .width  = static_cast<float>(extent.width),
+                           .height = static_cast<float>(extent.height),
+                           .minDepth = 0.0f,
+                           .maxDepth = 1.0f};
+    cmd->setViewport(0, viewport);
+
+    vk::Rect2D scissor {.offset = {0, 0}, .extent = extent};
+    cmd->setScissor(0, scissor);
+
+    for (const auto& packet : chunk) {
+        vulkan_mesh_data data;
+        {
+            std::lock_guard lock(_mesh_mutex);
+            auto            it = _meshes.find(packet.mesh);
+            if (it != _meshes.end()) {
+                data = it->second;
+            }
+        }
+
+        if (data.buffer) {
+            vk::DeviceSize offset = 0;
+            cmd->bindVertexBuffers(0, {data.buffer}, {offset});
+
+            if (data.index_buffer) {
+                cmd->bindIndexBuffer(
+                    data.index_buffer, 0, vk::IndexType::eUint32);
+                cmd->drawIndexed(data.index_count, 1, 0, 0, 0);
             } else {
-                // notice the esSecondary flag. this buffer cannot be submitted
-                // directly to a queue, but instead executed by a primary buffer.
-                vk::CommandBufferAllocateInfo alloc_info {
-                    .commandPool        = *ctx.pool,
-                    .level              = vk::CommandBufferLevel::eSecondary,
-                    .commandBufferCount = 1,
-                };
-                ctx.buffers.push_back(std::move(
-                    vk::raii::CommandBuffers(_device, alloc_info).front()));
-                cmd = &ctx.buffers[ctx.used_buffers++];
+                cmd->draw(data.vertex_count, 1, 0, 0);
             }
-
-            // setup dynamic rendering inheritance.
-            // secondary command buffers inside dynamic rendering require
-            // explicit inheritance info to know what formats they are rendering
-            // into, since they don't have access to the overarching render
-            // pass.
-            vk::Format format = _active_swapchain->get_image_format();
-            vk::CommandBufferInheritanceRenderingInfo inheritance_rendering {
-                .colorAttachmentCount    = 1,
-                .pColorAttachmentFormats = &format,
-                .rasterizationSamples    = vk::SampleCountFlagBits::e1,
-            };
-            vk::CommandBufferInheritanceInfo inheritance {
-                .pNext = &inheritance_rendering,
-            };
-            vk::CommandBufferBeginInfo begin_info {
-                .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit |
-                         vk::CommandBufferUsageFlagBits::eRenderPassContinue,
-                .pInheritanceInfo = &inheritance,
-            };
-
-            cmd->begin(begin_info);
-
-            // bind pipeline and dynamic state inside secondary buffer.
-            if (_active_pipeline) {
-                cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                  _active_pipeline->get_pipeline());
-            }
-
-            vk::Extent2D extent = _active_swapchain->get_extent();
-            vk::Viewport viewport {.x      = 0.0f,
-                                   .y      = 0.0f,
-                                   .width  = static_cast<float>(extent.width),
-                                   .height = static_cast<float>(extent.height),
-                                   .minDepth = 0.0f,
-                                   .maxDepth = 1.0f};
-            cmd->setViewport(0, viewport);
-
-            vk::Rect2D scissor {.offset = {0, 0}, .extent = extent};
-            cmd->setScissor(0, scissor);
-
-            // record draw calls.
-            for (const auto& packet : chunk) {
-                vulkan_mesh_data data;
-                {
-                    std::lock_guard lock(_mesh_mutex);
-                    auto            it = _meshes.find(packet.mesh);
-                    if (it != _meshes.end()) {
-                        data = it->second;
-                    }
-                }
-
-                if (data.buffer) {
-                    vk::DeviceSize offset = 0;
-                    cmd->bindVertexBuffers(0, {data.buffer}, {offset});
-
-                    if (data.index_buffer) {
-                        cmd->bindIndexBuffer(
-                            data.index_buffer, 0, vk::IndexType::eUint32);
-                        cmd->drawIndexed(data.index_count, 1, 0, 0, 0);
-                    } else {
-                        cmd->draw(data.vertex_count, 1, 0, 0);
-                    }
-                }
-            }
-
-            cmd->end();
-            vk::CommandBuffer raw_cmd = **cmd;
-
-            return_thread_context(
-                std::move(ctx), current_window, current_frame);
-            return raw_cmd;
-        }));
+        }
     }
 
-    // wait for all jobs to finish and gather command buffers.
+    cmd->end();
+
+    vk::CommandBuffer raw_cmd = **cmd;
+
+    return_thread_context(std::move(ctx), current_window, current_frame);
+
+    return reinterpret_cast<void*>(static_cast<VkCommandBuffer>(raw_cmd));
+}
+
+auto vulkan_backend_system::execute_recorded_commands(
+    std::span<void* const> command_lists) -> void {
+    
+    if (!_active_swapchain || command_lists.empty()) {
+        return;
+    }
+
     std::vector<vk::CommandBuffer> secondary_cmds;
-    secondary_cmds.reserve(num_chunks);
-    for (auto& task : tasks) {
-        secondary_cmds.push_back(task.get<vk::CommandBuffer>());
+    secondary_cmds.reserve(command_lists.size());
+    
+    for (void* handle : command_lists) {
+        if (handle) {
+            secondary_cmds.push_back(reinterpret_cast<VkCommandBuffer>(handle));
+        }
     }
 
-    // execute secondary command buffers.
     if (!secondary_cmds.empty()) {
         _active_swapchain->get_command_buffer().executeCommands(secondary_cmds);
     }
 }
 
-auto vulkan_backend_system::create_mesh(std::span<const vertex>   vertices,
+auto vulkan_backend_system::create_mesh(mesh_handle handle,
+                                        std::span<const vertex>   vertices,
                                         std::span<const uint32_t> indices)
-    -> mesh_handle {
+    -> void {
     log()->trace("vulkan", "creating mesh ({} vertices, {} indices)", vertices.size(), indices.size());
-    if (vertices.empty())
-        return INVALID_MESH_HANDLE;
+    if (vertices.empty() || handle == INVALID_MESH_HANDLE)
+        return;
 
     size_t vertex_size = sizeof(vertex) * vertices.size();
     size_t index_size  = sizeof(uint32_t) * indices.size();
@@ -1041,7 +1156,7 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex>   vertices,
                         &staging_allocation,
                         &staging_alloc_result) != VK_SUCCESS) {
         log()->error("vulkan", "failed to create staging buffer.");
-        return INVALID_MESH_HANDLE;
+        return;
     }
 
     // copy data to staging buffer.
@@ -1076,7 +1191,7 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex>   vertices,
                         nullptr) != VK_SUCCESS) {
         log()->error("vulkan", "failed to create vertex buffer.");
         vmaDestroyBuffer(_allocator, staging_buffer, staging_allocation);
-        return INVALID_MESH_HANDLE;
+        return;
     }
 
     // create gpu-local index buffer if indices exist.
@@ -1099,7 +1214,7 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex>   vertices,
             vmaDestroyBuffer(
                 _allocator, mesh_data.buffer, mesh_data.allocation);
             vmaDestroyBuffer(_allocator, staging_buffer, staging_allocation);
-            return INVALID_MESH_HANDLE;
+            return;
         }
     }
 
@@ -1150,15 +1265,27 @@ auto vulkan_backend_system::create_mesh(std::span<const vertex>   vertices,
     // cleanup staging buffer.
     vmaDestroyBuffer(_allocator, staging_buffer, staging_allocation);
 
-    // store and return handle.
-    mesh_handle handle;
     {
         std::lock_guard lock(_mesh_mutex);
-        handle          = _next_mesh_handle++;
         _meshes[handle] = mesh_data;
     }
+}
 
-    return handle;
+auto vulkan_backend_system::destroy_mesh(mesh_handle handle) -> void {
+    if (handle == INVALID_MESH_HANDLE) return;
+
+    std::lock_guard lock(_mesh_mutex);
+    auto it = _meshes.find(handle);
+    if (it != _meshes.end()) {
+        if (it->second.buffer) {
+            vmaDestroyBuffer(_allocator, it->second.buffer, it->second.allocation);
+        }
+        if (it->second.index_buffer) {
+            vmaDestroyBuffer(_allocator, it->second.index_buffer, it->second.index_allocation);
+        }
+        _meshes.erase(it);
+        log()->trace("vulkan", "destroyed mesh {}", handle);
+    }
 }
 
 }  // namespace vent

@@ -10,9 +10,7 @@
 
 #include <_vent/system/system_base.hpp>
 #include <_vent/platform/ic_window.hpp>
-#include <_vent/renderer/ic_pipeline.hpp>
 
-#include <renderer/interfaces/i_pipeline.hpp>
 #include <renderer/interfaces/i_render_backend.hpp>
 
 #include <vulkan/vulkan_raii.hpp>
@@ -93,8 +91,6 @@ private:
     ic_window* _active_window =
         nullptr;  ///< the window currently rendering a frame.
 
-    class vulkan_pipeline* _active_pipeline = nullptr;
-
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
 
@@ -109,12 +105,29 @@ private:
     };
 
     std::unordered_map<mesh_handle, vulkan_mesh_data> _meshes;
-    mesh_handle                                       _next_mesh_handle = 1;
     std::mutex                                        _mesh_mutex;
+
+    class vulkan_pipeline* _active_pipeline = nullptr;
+    std::unordered_map<pipeline_handle, std::unique_ptr<class vulkan_pipeline>> _pipelines;
+
+    // --- global uniforms and descriptors ---
+    // —————————————————————————————————————————————————————————————————————————
+    std::vector<VkBuffer>      _global_uniform_buffers;
+    std::vector<VmaAllocation> _global_uniform_allocations;
+    std::vector<void*>         _global_uniform_mapped;
+
+    vk::raii::DescriptorSetLayout        _global_descriptor_set_layout = nullptr;
+    vk::raii::DescriptorPool             _descriptor_pool = nullptr;
+    std::vector<vk::raii::DescriptorSet> _global_descriptor_sets;
 
 public:
     // --- i_render_backend ---
     // —————————————————————————————————————————————————————————————————————————
+
+    /// @brief gets the global descriptor set layout for uniforms.
+    auto get_global_descriptor_set_layout() const -> const vk::raii::DescriptorSetLayout& {
+        return _global_descriptor_set_layout;
+    }
 
     /// @brief gets the name of the graphics api.
     /// @return string view containing "vulkan".
@@ -150,34 +163,55 @@ public:
     auto end_frame(ic_window* window) -> void override;
 
     /// @brief creates a new graphics pipeline from a description.
+    /// @param handle the frontend-generated handle.
     /// @param desc the pipeline descriptor.
-    /// @return unique pointer to the created pipeline.
-    auto create_graphics_pipeline(const pipeline_desc& desc)
-        -> std::unique_ptr<i_pipeline> override;
+    auto create_graphics_pipeline(pipeline_handle handle, const pipeline_desc& desc) -> void override;
+
+    /// @brief destroys a graphics pipeline.
+    /// @param handle the pipeline handle.
+    auto destroy_graphics_pipeline(pipeline_handle handle) -> void override;
 
     /// @brief binds a pipeline for subsequent draw calls in the current frame.
-    /// @param pipeline the pipeline to bind.
-    auto bind_pipeline(ic_pipeline* pipeline) -> void override;
+    /// @param handle the pipeline handle to bind.
+    auto bind_pipeline(pipeline_handle handle) -> void override;
+
+    /// @brief update global uniform buffer data.
+    /// @param ubo the uniform data to pass to the renderer.
+    auto update_global_uniforms(const uniform_buffer_object& ubo) -> void override;
+
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
 
     /// @brief creates a gpu mesh buffer from host vertex data.
+    /// @param handle the frontend-generated handle.
     /// @param vertices the list of vertices to upload.
     /// @param indices an optional list of indices for indexed drawing.
-    /// @return a handle to the uploaded mesh.
-    auto create_mesh(std::span<const vertex>   vertices,
-                     std::span<const uint32_t> indices = {})
-        -> mesh_handle override;
+    auto create_mesh(mesh_handle handle,
+                     std::span<const vertex>   vertices,
+                     std::span<const uint32_t> indices = {}) -> void override;
+
+    /// @brief destroys a mesh.
+    /// @param handle the mesh handle.
+    auto destroy_mesh(mesh_handle handle) -> void override;
 
     // --- rendering execution ---
     // —————————————————————————————————————————————————————————————————————————
 
-    /// @brief executes a list of render packets asynchronously.
-    /// @param packets the sorted list of draw commands to execute.
-    auto execute_packets(std::span<const render_packet> packets)
+    /// @brief records commands for a list of render packets on a background thread.
+    /// @param chunk the chunk of draw commands to execute.
+    /// @return an opaque handle to the recorded command list.
+    auto record_command_chunk(std::span<const render_packet> chunk)
+        -> void* override;
+
+    /// @brief executes the recorded command lists on the primary command buffer.
+    /// @param command_lists span of opaque command list handles returned by record_command_chunk.
+    auto execute_recorded_commands(std::span<void* const> command_lists)
         -> void override;
 
 private:
+    auto create_global_uniforms() -> void;
+    auto destroy_global_uniforms() -> void;
+
     // --- multithreading ---
     struct thread_command_context {
         vk::raii::CommandPool                pool = nullptr;

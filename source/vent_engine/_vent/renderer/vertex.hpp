@@ -18,10 +18,4 @@ struct vertex {
     math::vec3 color;
 };
 
-// todo: this has no right to be here.
-/// @brief opaque handle to a mesh loaded into the renderer.
-using mesh_handle = u64;
-
-constexpr mesh_handle INVALID_MESH_HANDLE = 0;
-
 }  // namespace vent

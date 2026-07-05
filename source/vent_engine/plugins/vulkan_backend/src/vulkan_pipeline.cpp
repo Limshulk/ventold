@@ -12,10 +12,12 @@
 
 namespace vent {
 
-vulkan_pipeline::vulkan_pipeline(const vk::raii::Device& device,
-                                 const pipeline_desc&    desc,
-                                 vk::Format              swapchain_image_format,
-                                 vk::Extent2D            swapchain_extent) {
+vulkan_pipeline::vulkan_pipeline(
+    const vk::raii::Device&              device,
+    const vk::raii::DescriptorSetLayout& global_descriptor_set_layout,
+    const pipeline_desc&                 desc,
+    vk::Format                           swapchain_image_format,
+    vk::Extent2D                         swapchain_extent) {
     log()->trace("vulkan", "creating graphics pipeline");
 
     // --- shader modules ---
@@ -56,32 +58,26 @@ vulkan_pipeline::vulkan_pipeline(const vk::raii::Device& device,
 
     // vertex input.
     vk::VertexInputBindingDescription binding_description {
-        .binding = 0,
-        .stride = sizeof(vent::vertex),
-        .inputRate = vk::VertexInputRate::eVertex
-    };
+        .binding   = 0,
+        .stride    = sizeof(vent::vertex),
+        .inputRate = vk::VertexInputRate::eVertex};
 
-    std::array<vk::VertexInputAttributeDescription, 2> attribute_descriptions = {{
-        {
-            .location = 0,
-            .binding = 0,
-            .format = vk::Format::eR32G32B32Sfloat,
-            .offset = offsetof(vent::vertex, position)
-        },
-        {
-            .location = 1,
-            .binding = 0,
-            .format = vk::Format::eR32G32B32Sfloat,
-            .offset = offsetof(vent::vertex, color)
-        }
-    }};
+    std::array<vk::VertexInputAttributeDescription, 2> attribute_descriptions = {
+        {{.location = 0,
+          .binding  = 0,
+          .format   = vk::Format::eR32G32B32Sfloat,
+          .offset   = offsetof(vent::vertex, position)},
+         {.location = 1,
+          .binding  = 0,
+          .format   = vk::Format::eR32G32B32Sfloat,
+          .offset   = offsetof(vent::vertex, color)}}};
 
     vk::PipelineVertexInputStateCreateInfo vertex_input_info {
         .vertexBindingDescriptionCount = 1,
-        .pVertexBindingDescriptions = &binding_description,
-        .vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_descriptions.size()),
-        .pVertexAttributeDescriptions = attribute_descriptions.data()
-    };
+        .pVertexBindingDescriptions    = &binding_description,
+        .vertexAttributeDescriptionCount =
+            static_cast<uint32_t>(attribute_descriptions.size()),
+        .pVertexAttributeDescriptions = attribute_descriptions.data()};
 
     // input assembly.
     vk::PipelineInputAssemblyStateCreateInfo input_assembly {
@@ -99,7 +95,7 @@ vulkan_pipeline::vulkan_pipeline(const vk::raii::Device& device,
         .rasterizerDiscardEnable = false,
         .polygonMode             = vk::PolygonMode::eFill,
         .cullMode                = vk::CullModeFlagBits::eBack,
-        .frontFace               = vk::FrontFace::eClockwise,
+        .frontFace               = vk::FrontFace::eCounterClockwise,
         .depthBiasEnable         = false,
         .lineWidth               = 1.0f};
 
@@ -123,7 +119,9 @@ vulkan_pipeline::vulkan_pipeline(const vk::raii::Device& device,
 
     // pipeline layout.
     vk::PipelineLayoutCreateInfo pipeline_layout_info {
-        .setLayoutCount = 0, .pushConstantRangeCount = 0};
+        .setLayoutCount         = 1,
+        .pSetLayouts            = &*global_descriptor_set_layout,
+        .pushConstantRangeCount = 0};
 
     try {
         _pipeline_layout =
