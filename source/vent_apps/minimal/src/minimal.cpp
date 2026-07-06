@@ -1,11 +1,12 @@
-// minimal client application.
+﻿// minimal client application.
 // ——————————————————————
 //
 // demonstrates a basic vent client using the client_base class.
+// the renderer runs automatically as an ir_runnable — clients describe
+// the scene via world components (mesh, transform, camera) and never
+// issue render API calls directly.
 
 #include <_vent/_vent.hpp>
-
-#include <_vent/asset/shader.hpp>
 
 #include <_vent/math/math.hpp>
 
@@ -57,15 +58,41 @@ public:
             _windows.push_back(window);
         }
 
-        vent::asset()->mount("app://", ".");
+        // note: no asset mount here. the engine mounts app:// to the
+        // executable's directory by default, so app://assets/... resolves
+        // correctly no matter which working directory launched us.
 
-        // create the scene entity
+        // create the scene entity (the rotating viking room model).
         _model_entity = vent::world()->create_entity();
         vent::world()->set_mesh(
             _model_entity,
             vent::mesh_component {.model_path = "app://assets/viking_room.obj",
                                   .texture_path =
                                       "app://assets/viking_room.png"});
+
+        // create a camera entity. the renderer frontend runs as ir_runnable
+        // at run_phase_render — it reconciles surfaces, extracts the world
+        // once per frame, computes view/proj from the camera entity, and
+        // replays per window. no manual begin_frame/end_frame/set_camera.
+        _camera_entity = vent::world()->create_entity();
+        vent::world()->set_camera(
+            _camera_entity,
+            vent::camera_component {.fov_y_deg = 45.0f,
+                                    .z_near    = 0.1f,
+                                    .z_far     = 100.0f});
+        // careful: a transform component stores a POSE (camera-to-world), so
+        // we use look_at_transform() here — look_at() returns the opposite
+        // direction (a view matrix), which the renderer derives itself by
+        // inverting this pose.
+        vent::world()->set_transform(
+            _camera_entity,
+            vent::transform_component {
+                .matrix = vent::math::look_at_transform(
+                    vent::math::vec3(2.0f, 2.0f, 2.0f),
+                    vent::math::vec3(0.0f, 0.0f, 0.0f),
+                    vent::math::vec3(0.0f, 0.0f, 1.0f))});
+        // set as default camera so all windows use it.
+        vent::world()->set_active_camera(_camera_entity);
 
         _frame_count = 0;
         _elapsed     = 0.0;
@@ -94,45 +121,18 @@ public:
             }
         }
 
-        // update entity transform
+        // update entity transform (spinning the model around Z).
         vent::math::mat4 model =
             vent::math::rotate_z(_elapsed * vent::math::radians(90.0f));
         vent::world()->set_transform(
             _model_entity, vent::transform_component {.matrix = model});
 
-        // setup camera
-        vent::math::mat4 view =
-            vent::math::look_at(vent::math::vec3(2.0f, 2.0f, 2.0f),
-                                vent::math::vec3(0.0f, 0.0f, 0.0f),
-                                vent::math::vec3(0.0f, 0.0f, 1.0f));
-
-        // derive the aspect ratio from the main window's actual framebuffer
-        // instead of hardcoding 1280/720. note: the camera is still global here,
-        // so auxiliary windows of a different size are stretched — this is
-        // resolved properly once the renderer owns per-window cameras (roadmap
-        // s-1 / 1.2). guard against a 0-height framebuffer (minimized) to avoid
-        // a division by zero producing NaNs in the projection.
-        float aspect = 16.0f / 9.0f;
-        if (!_windows.empty() && _windows.front() != nullptr) {
-            const vent::u32 fb_w = _windows.front()->get_framebuffer_width();
-            const vent::u32 fb_h = _windows.front()->get_framebuffer_height();
-            if (fb_h > 0) {
-                aspect = static_cast<float>(fb_w) / static_cast<float>(fb_h);
-            }
-        }
-
-        vent::math::mat4 proj = vent::math::perspective(
-            vent::math::radians(45.0f), aspect, 0.1f, 10.0f);
-
-        vent::renderer()->set_camera(view, proj);
-
-        // render to all windows
-        for (auto* window : _windows) {
-            if (vent::renderer()->begin_frame(window)) {
-
-                vent::renderer()->end_frame(window);
-            }
-        }
+        // note: rendering is fully automatic. the renderer frontend runs as
+        // ir_runnable in the render phase — it reconciles surfaces, extracts
+        // the world into a command list once per frame, derives view/proj
+        // from the camera entity and the window framebuffer size, and replays
+        // per window. the client only describes the scene through world
+        // components (mesh, transform, camera) and never issues render calls.
 
         if (_frame_count == 180) {
             request_exit();
@@ -145,16 +145,22 @@ public:
         if (_model_entity != vent::INVALID_ENTITY) {
             vent::world()->destroy_entity(_model_entity);
         }
+        if (_camera_entity != vent::INVALID_ENTITY) {
+            vent::world()->destroy_entity(_camera_entity);
+        }
 
         for (auto it = _windows.rbegin(); it != _windows.rend(); ++it) {
             vent::platform()->destroy_window(*it);
         }
         _windows.clear();
 
+        // guard the average against an exit before the first full frame.
+        const vent::f64 avg_fps =
+            _elapsed > 0.0 ? _frame_count / _elapsed : 0.0;
         vent::log()->info("client",
                           "goodbye! total frames: {}, avg fps: {:.1f}",
                           _frame_count,
-                          _frame_count / _elapsed);
+                          avg_fps);
     }
 
     [[nodiscard]]
@@ -164,9 +170,10 @@ public:
 
 private:
     std::vector<vent::ic_window*> _windows;
-    vent::entity                  _model_entity = vent::INVALID_ENTITY;
-    vent::u64                     _frame_count  = 0;
-    vent::f64                     _elapsed      = 0.0;
+    vent::entity                  _model_entity  = vent::INVALID_ENTITY;
+    vent::entity                  _camera_entity = vent::INVALID_ENTITY;
+    vent::u64                     _frame_count   = 0;
+    vent::f64                     _elapsed       = 0.0;
 };
 
 VENT_REGISTER_CLIENT(minimal_client);

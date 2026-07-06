@@ -2,11 +2,15 @@
 // renderer frontend system implementation.
 // ——————————————————————
 //
-// details.
+// the render phase of the frame. on_update() runs after the client's simulate
+// phase and performs: reconcile surfaces → extract the world once → render
+// each window from the extracted snapshot. no client involvement anywhere.
 
 #include <renderer.hpp>
 
 #include <_vent/accessors.hpp>
+#include <_vent/renderer/pipeline_desc.hpp>
+#include <_vent/renderer/texture_desc.hpp>
 #include <_vent/renderer/uniform_buffer.hpp>
 
 #include <core/interfaces/i_system_registry.hpp>
@@ -14,7 +18,12 @@
 
 #include <platform/interfaces/i_window.hpp>
 
+#include <algorithm>
+
 namespace vent {
+
+// --- lifecycle ---
+// —————————————————————————————————————————————————————————————————————————————
 
 auto renderer_system::initialize() -> bool {
 
@@ -41,90 +50,12 @@ auto renderer_system::initialize() -> bool {
                 "render backend plugin loaded: {}",
                 _backend->get_api_name());
 
-    log()->trace("renderer",
-                 "render backend initialized. "
-                 "subscribing to window.created & window.destroyed events...");
-
-    // globally subscribe to all window creations so we can attach a surface to
-    // each.
-    _window_sub = event()->subscribe(
-        "window.created", [this](std::string_view, void* data) {
-            auto* w = static_cast<ic_window*>(data);
-            if (w) {
-                log()->trace("renderer",
-                             "window.created event received for '{}'",
-                             w->get_title());
-                std::lock_guard lock(_windows_mutex);
-                _windows.push_back(w);
-                if (_backend) {
-                    if (_backend->create_surface(w)) {
-                        log()->info(
-                            "renderer",
-                            "surface dynamically created for window '{}'.",
-                            w->get_title());
-                    } else {
-                        log()->error(
-                            "renderer",
-                            "failed to create surface for window '{}'.",
-                            w->get_title());
-                    }
-                }
-            }
-        });
-
-    _window_destroyed_sub = event()->subscribe(
-        "window.destroyed", [this](std::string_view, void* data) {
-            auto* w = static_cast<ic_window*>(data);
-            if (w) {
-                log()->trace("renderer",
-                             "window.destroyed event received for '{}'",
-                             w->get_title());
-                std::lock_guard lock(_windows_mutex);
-                auto it = std::find(_windows.begin(), _windows.end(), w);
-                if (it != _windows.end()) {
-                    if (_backend) {
-                        _backend->destroy_surface(w);
-                    }
-                    _windows.erase(it);
-                }
-            }
-        });
-
-    // check if platform already has active windows, and initialize surfaces for
-    // them immediately.
-    log()->trace("renderer", "checking for existing windows...");
-    if (auto* plat = platform_if_ready()) {
-        auto existing_windows = plat->get_windows();
-        if (!existing_windows.empty()) {
-            log()->info(
-                "renderer",
-                "found {} existing windows. creating surfaces for them.",
-                existing_windows.size());
-            std::lock_guard lock(_windows_mutex);
-            for (auto* w : existing_windows) {
-                // only add if not already present.
-                if (std::find(_windows.begin(), _windows.end(), w) ==
-                    _windows.end()) {
-                    _windows.push_back(w);
-                    if (_backend) {
-                        if (_backend->create_surface(w)) {
-                            log()->info("renderer",
-                                        "surface dynamically created for "
-                                        "existing window '{}'.",
-                                        w->get_title());
-                        } else {
-                            log()->error("renderer",
-                                         "failed to create surface for "
-                                         "existing window '{}'.",
-                                         w->get_title());
-                        }
-                    }
-                }
-            }
-        } else {
-            log()->trace("renderer", "no existing windows found.");
-        }
-    }
+    // note: no window event subscriptions here anymore. surfaces are
+    // reconciled against the platform's window list at the start of every
+    // frame (reconcile_surfaces) — deterministic, main-thread, and immune to
+    // the worker-thread/platform-thread marshalling deadlock that event
+    // callbacks risked (review c-3.5). windows created before the renderer
+    // initialized are picked up by the first reconcile pass.
 
     return true;
 }
@@ -132,175 +63,334 @@ auto renderer_system::initialize() -> bool {
 auto renderer_system::shutdown() -> void {
     log()->trace("renderer", "renderer_system::shutdown() called.");
 
-    if (_backend) {
-        _backend->wait_for_idle();
+    if (!_backend) {
+        return;
     }
+
+    // one barrier at the boundary: a single wait-for-idle before teardown
+    // beats scattered per-resource stalls.
+    _backend->wait_for_idle();
     log()->trace(
         "renderer",
         "renderer_system::shutdown(): backend completed all operations.");
 
-    if (_window_sub != vent::INVALID_SUBSCRIPTION && event()) {
-        event()->unsubscribe(_window_sub);
-        _window_sub = vent::INVALID_SUBSCRIPTION;
-    }
-    if (_window_destroyed_sub != vent::INVALID_SUBSCRIPTION && event()) {
-        event()->unsubscribe(_window_destroyed_sub);
-        _window_destroyed_sub = vent::INVALID_SUBSCRIPTION;
-    }
-
-    // destroy surfaces before backend is shut down.
-    if (_backend) {
-        {
-            std::lock_guard lock(_model_mutex);
-            for (auto& [path, cached_m] : _model_cache) {
-                if (cached_m.mesh != INVALID_MESH_HANDLE) {
-                    _backend->destroy_mesh(cached_m.mesh);
-                }
+    {
+        std::lock_guard lock(_model_mutex);
+        for (auto& [path, cached_m] : _model_cache) {
+            if (cached_m.mesh != INVALID_MESH_HANDLE) {
+                _backend->destroy_mesh(cached_m.mesh);
             }
-            _model_cache.clear();
         }
+        _model_cache.clear();
+    }
 
-        {
-            std::lock_guard lock(_texture_mutex);
-            for (auto& [path, cached_t] : _texture_cache) {
-                if (cached_t.texture != INVALID_TEXTURE_HANDLE) {
-                    _backend->destroy_texture(cached_t.texture);
-                }
+    {
+        std::lock_guard lock(_texture_mutex);
+        for (auto& [path, cached_t] : _texture_cache) {
+            if (cached_t.texture != INVALID_TEXTURE_HANDLE) {
+                _backend->destroy_texture(cached_t.texture);
             }
-            _texture_cache.clear();
         }
+        _texture_cache.clear();
+    }
 
-        if (_default_pipeline != INVALID_PIPELINE_HANDLE) {
-            _backend->destroy_graphics_pipeline(_default_pipeline);
-            _default_pipeline = INVALID_PIPELINE_HANDLE;
-        }
+    if (_placeholder_texture != INVALID_TEXTURE_HANDLE) {
+        _backend->destroy_texture(_placeholder_texture);
+        _placeholder_texture = INVALID_TEXTURE_HANDLE;
+    }
 
-        std::lock_guard lock(_windows_mutex);
-        for (auto* w : _windows) {
-            _backend->destroy_surface(static_cast<ic_window*>(w));
-        }
-        _windows.clear();
+    if (_default_pipeline != INVALID_PIPELINE_HANDLE) {
+        _backend->destroy_graphics_pipeline(_default_pipeline);
+        _default_pipeline = INVALID_PIPELINE_HANDLE;
+    }
+
+    // destroy all remaining surfaces (the backend defers actual destruction
+    // safely; its own shutdown then drains whatever is left).
+    for (auto* w : _backend->get_surface_windows()) {
+        _backend->destroy_surface(w);
     }
 }
 
-// --- ic_renderer implementation ---
+// --- ir_runnable implementation ---
 // —————————————————————————————————————————————————————————————————————————————
 
-auto renderer_system::begin_frame(ic_window* window) -> bool {
-    if (_backend) {
-        return _backend->begin_frame(window);
-    }
-    return false;
-}
+auto renderer_system::on_update(f64 delta_time) -> void {
+    (void) delta_time;
 
-auto renderer_system::set_camera(const math::mat4& view, const math::mat4& proj)
-    -> void {
-    _view_matrix = view;
-    _proj_matrix = proj;
-}
-
-auto renderer_system::end_frame(ic_window* window) -> void {
-    if (!_backend || !world()) {
-        if (_backend)
-            _backend->end_frame(window);
+    if (!_backend) {
         return;
     }
 
-    // 1. initialize default pipeline if not done yet
-    if (_default_pipeline == INVALID_PIPELINE_HANDLE) {
+    reconcile_surfaces();
+    ensure_default_resources();
+    extract_frame();
+
+    // per-window replay: everything below reads only the frame snapshot
+    // (_command_list + _window_cameras), never live world state.
+    for (const auto& wc : _window_cameras) {
+        render_window(wc);
+    }
+}
+
+// --- frame stages ---
+// —————————————————————————————————————————————————————————————————————————————
+
+auto renderer_system::reconcile_surfaces() -> void {
+    // converge backend surfaces to the platform's window list once per frame.
+    // creation: any window without a surface gets one (covers both startup
+    // windows and windows created at runtime, like minimal's delayed window).
+    auto windows = platform()->get_windows();
+    for (auto* w : windows) {
+        if (w && !_backend->has_surface(w)) {
+            if (_backend->create_surface(w)) {
+                log()->info("renderer",
+                            "surface created for window '{}'.",
+                            w->get_title());
+            } else {
+                log()->error("renderer",
+                             "failed to create surface for window '{}'.",
+                             w->get_title());
+            }
+        }
+    }
+
+    // destruction: surfaces whose window vanished from the platform list are
+    // marked for deferred destruction. the window pointer is only COMPARED
+    // here, never dereferenced — it may already be dead (platform-initiated
+    // close). proper lifetime safety needs generation-checked window handles
+    // (review c-5, phase 2); until then this is exactly as safe as the old
+    // event-driven path, minus the worker-thread hazards.
+    for (auto* sw : _backend->get_surface_windows()) {
+        if (std::find(windows.begin(), windows.end(), sw) == windows.end()) {
+            _backend->destroy_surface(sw);
+        }
+    }
+}
+
+auto renderer_system::ensure_default_resources() -> void {
+    // 1. default pipeline. lazy because pipeline creation requires at least
+    // one live swapchain for format information.
+    if (_default_pipeline == INVALID_PIPELINE_HANDLE && !_pipeline_failed) {
+        // engine-owned default shader from the vent:// mount — the renderer
+        // must never reach into the app's asset space (review s-2).
         _default_shader =
-            asset()->load_shader("app://assets/shaders/shader.slang.spv");
+            asset()->load_shader("vent://shaders/default.slang.spv");
+        if (!_default_shader) {
+            // classic magenta error shader as fallback: a wrong-but-visible
+            // frame is debuggable, a black screen is not.
+            log()->error("renderer",
+                         "default shader missing — falling back to the error "
+                         "shader.");
+            _default_shader =
+                asset()->load_shader("vent://shaders/error.slang.spv");
+        }
+
         if (_default_shader) {
             pipeline_desc p_desc;
             p_desc.shader     = _default_shader;
             _default_pipeline = _next_pipeline_handle.fetch_add(1);
             _backend->create_graphics_pipeline(_default_pipeline, p_desc);
+        } else {
+            _pipeline_failed = true;
+            log()->error("renderer",
+                         "no usable shader found (default + error both "
+                         "missing) — rendering disabled. will not retry.");
         }
     }
 
-    // 2. update global uniforms (camera)
-    uniform_buffer_object ubo = {.view = _view_matrix, .proj = _proj_matrix};
-    _backend->update_global_uniforms(ubo);
+    // 2. placeholder texture: 64x64 magenta/black checkerboard, generated in
+    // code — no file, no i/o, cannot be missing. used for entities whose
+    // texture failed to load; phase 2 reuses it as the "still loading" state.
+    if (_placeholder_texture == INVALID_TEXTURE_HANDLE) {
+        constexpr u32   size  = 64;
+        constexpr u32   block = 8;  // 8x8 pixel checker blocks.
+        std::vector<u8> pixels(size * size * 4);
+        for (u32 y = 0; y < size; ++y) {
+            for (u32 x = 0; x < size; ++x) {
+                const bool magenta   = ((x / block) + (y / block)) % 2 == 0;
+                u8*        px        = &pixels[(y * size + x) * 4];
+                px[0]                = magenta ? 255 : 0;  // r.
+                px[1]                = 0;                  // g.
+                px[2]                = magenta ? 255 : 0;  // b.
+                px[3]                = 255;                // a.
+            }
+        }
 
-    // 3. fetch entities and build command list
+        texture_desc t_desc {.width  = size,
+                             .height = size,
+                             .pixels = std::span<const u8>(pixels)};
+        _placeholder_texture = _next_texture_handle.fetch_add(1);
+        _backend->create_texture(_placeholder_texture, t_desc);
+    }
+}
+
+auto renderer_system::extract_frame() -> void {
+    // --- scene extraction: once per frame, not per window (perf §7.4) ---
+
     _command_list.clear();
-    auto entities = world()->get_renderable_entities();
 
-    for (entity e : entities) {
-        const auto* mesh_comp  = world()->get_mesh(e);
-        const auto* trans_comp = world()->get_transform(e);
+    if (world() && _default_pipeline != INVALID_PIPELINE_HANDLE) {
+        auto entities = world()->get_renderable_entities();
 
-        if (!mesh_comp || mesh_comp->model_path.empty() ||
-            mesh_comp->texture_path.empty())
-            continue;
+        for (entity e : entities) {
+            const auto* mesh_comp  = world()->get_mesh(e);
+            const auto* trans_comp = world()->get_transform(e);
 
-        // resolve model.
-        // note: these caches are owned by the render thread (end_frame runs on
-        // the main/render thread; shutdown runs on it too, after the loop stops)
-        // so there is no real contention, but we lock consistently with
-        // shutdown()'s use of the same mutexes rather than guarding only one
-        // side. the `failed` flag stops a broken asset from being re-loaded from
-        // disk (and re-logged) on every single frame.
-        mesh_handle m_handle = INVALID_MESH_HANDLE;
-        {
-            std::lock_guard lock(_model_mutex);
-            auto&           cached_m = _model_cache[mesh_comp->model_path];
-            if (!cached_m.failed && cached_m.mesh == INVALID_MESH_HANDLE) {
-                cached_m.asset = asset()->load_model(mesh_comp->model_path);
-                if (cached_m.asset && !cached_m.asset->vertices.empty()) {
-                    cached_m.mesh = _next_mesh_handle.fetch_add(1);
-                    _backend->create_mesh(cached_m.mesh,
-                                          cached_m.asset->vertices,
-                                          cached_m.asset->indices);
-                } else {
-                    cached_m.failed = true;
-                    log()->error("renderer",
-                                 "failed to load model '{}'; will not retry.",
-                                 mesh_comp->model_path);
+            if (!mesh_comp || mesh_comp->model_path.empty()) {
+                continue;
+            }
+
+            // resolve model.
+            // note: these caches are owned by the render phase (extract runs
+            // on the main thread; shutdown runs after the loop stops) so
+            // there is no real contention, but we lock consistently with
+            // shutdown()'s use of the same mutexes rather than guarding only
+            // one side. the `failed` flag stops a broken asset from being
+            // re-loaded from disk (and re-logged) every single frame.
+            mesh_handle m_handle = INVALID_MESH_HANDLE;
+            {
+                std::lock_guard lock(_model_mutex);
+                auto&           cached_m = _model_cache[mesh_comp->model_path];
+                if (!cached_m.failed && cached_m.mesh == INVALID_MESH_HANDLE) {
+                    cached_m.asset = asset()->load_model(mesh_comp->model_path);
+                    if (cached_m.asset && !cached_m.asset->vertices.empty()) {
+                        cached_m.mesh = _next_mesh_handle.fetch_add(1);
+                        _backend->create_mesh(cached_m.mesh,
+                                              cached_m.asset->vertices,
+                                              cached_m.asset->indices);
+                    } else {
+                        cached_m.failed = true;
+                        log()->error(
+                            "renderer",
+                            "failed to load model '{}'; will not retry.",
+                            mesh_comp->model_path);
+                    }
+                }
+                m_handle = cached_m.mesh;
+            }
+
+            // resolve texture (same ownership / failed-flag reasoning). a
+            // missing or failed texture falls back to the checkerboard
+            // placeholder so the entity stays visible — failure as a visual
+            // state instead of an absence.
+            texture_handle t_handle = _placeholder_texture;
+            if (!mesh_comp->texture_path.empty()) {
+                std::lock_guard lock(_texture_mutex);
+                auto& cached_t = _texture_cache[mesh_comp->texture_path];
+                if (!cached_t.failed &&
+                    cached_t.texture == INVALID_TEXTURE_HANDLE) {
+                    cached_t.asset =
+                        asset()->load_image(mesh_comp->texture_path);
+                    if (cached_t.asset) {
+                        texture_desc t_desc {
+                            .width  = cached_t.asset->width,
+                            .height = cached_t.asset->height,
+                            .pixels =
+                                std::span<const u8>(cached_t.asset->pixels)};
+                        cached_t.texture = _next_texture_handle.fetch_add(1);
+                        _backend->create_texture(cached_t.texture, t_desc);
+                    } else {
+                        cached_t.failed = true;
+                        log()->error(
+                            "renderer",
+                            "failed to load texture '{}'; using placeholder. "
+                            "will not retry.",
+                            mesh_comp->texture_path);
+                    }
+                }
+                if (cached_t.texture != INVALID_TEXTURE_HANDLE) {
+                    t_handle = cached_t.texture;
                 }
             }
-            m_handle = cached_m.mesh;
-        }
 
-        // resolve texture (same ownership / failed-flag reasoning as above).
-        texture_handle t_handle = INVALID_TEXTURE_HANDLE;
-        {
-            std::lock_guard lock(_texture_mutex);
-            auto&           cached_t = _texture_cache[mesh_comp->texture_path];
-            if (!cached_t.failed && cached_t.texture == INVALID_TEXTURE_HANDLE) {
-                cached_t.asset = asset()->load_image(mesh_comp->texture_path);
-                if (cached_t.asset) {
-                    texture_desc t_desc {
-                        .width  = cached_t.asset->width,
-                        .height = cached_t.asset->height,
-                        .pixels = std::span<const u8>(cached_t.asset->pixels)};
-                    cached_t.texture = _next_texture_handle.fetch_add(1);
-                    _backend->create_texture(cached_t.texture, t_desc);
-                } else {
-                    cached_t.failed = true;
-                    log()->error("renderer",
-                                 "failed to load texture '{}'; will not retry.",
-                                 mesh_comp->texture_path);
-                }
+            if (m_handle != INVALID_MESH_HANDLE &&
+                t_handle != INVALID_TEXTURE_HANDLE) {
+                math::mat4 transform =
+                    trans_comp ? trans_comp->matrix : math::mat4::identity();
+                // using entity id as sort key for now. real key packing
+                // (layer|pipeline|texture|depth) is roadmap phase 3.1 — the
+                // bind-on-change elision in the backend already exploits
+                // whatever adjacency this sort produces.
+                _command_list.draw_mesh(
+                    _default_pipeline, t_handle, m_handle, transform, e);
             }
-            t_handle = cached_t.texture;
         }
 
-        if (m_handle != INVALID_MESH_HANDLE &&
-            t_handle != INVALID_TEXTURE_HANDLE &&
-            _default_pipeline != INVALID_PIPELINE_HANDLE) {
-            math::mat4 transform =
-                trans_comp ? trans_comp->matrix : math::mat4::identity();
-            // using entity id as sort key for now
-            _command_list.draw_mesh(
-                _default_pipeline, t_handle, m_handle, transform, e);
-        }
+        _command_list.sort();
     }
 
-    // 4. sort and chunk commands
-    _command_list.sort();
-    auto packets = _command_list.get_packets();
+    // --- camera snapshot: resolve each window's camera BY VALUE ---
+    // after this point the render stage never reads live world state. this
+    // is the extract/render seam that later lets simulation overlap rendering.
 
+    _window_cameras.clear();
+    for (auto* w : platform()->get_windows()) {
+        if (!w || !_backend->has_surface(w)) {
+            continue;
+        }
+
+        window_camera wc;
+        wc.window = w;
+
+        entity cam_entity =
+            world() ? world()->get_active_camera(w) : INVALID_ENTITY;
+        const camera_component* cam =
+            (cam_entity != INVALID_ENTITY) ? world()->get_camera(cam_entity)
+                                           : nullptr;
+
+        if (cam) {
+            wc.camera = *cam;
+            if (const auto* t = world()->get_transform(cam_entity)) {
+                wc.pose = t->matrix;
+            }
+        } else {
+            // built-in fallback camera: every window renders SOMETHING with
+            // zero configuration. warn once, not per frame.
+            wc.pose = math::look_at_transform(math::vec3(3.0f, 3.0f, 3.0f),
+                                              math::vec3(0.0f, 0.0f, 0.0f),
+                                              math::vec3(0.0f, 0.0f, 1.0f));
+            if (!_warned_no_camera) {
+                _warned_no_camera = true;
+                log()->warn("renderer",
+                            "no camera entity in the world — using the "
+                            "built-in fallback camera. create an entity with "
+                            "a camera_component to control the view.");
+            }
+        }
+
+        _window_cameras.push_back(wc);
+    }
+}
+
+auto renderer_system::render_window(const window_camera& wc) -> void {
+    // begin_frame waits on THIS window's frame fence — everything written
+    // between here and end_frame is protected by exactly that fence.
+    if (!_backend->begin_frame(wc.window)) {
+        return;  // minimized, out of date, or surface just destroyed.
+    }
+
+    // view = inverse of the camera pose (rigid transforms invert cheaply).
+    // projection from the window's ACTUAL framebuffer size, so resizing
+    // fixes the aspect live. 0-height guard: minimized windows are rejected
+    // by begin_frame already, but a live 0-height resize must not produce
+    // NaNs.
+    const u32 fb_w   = wc.window->get_framebuffer_width();
+    const u32 fb_h   = wc.window->get_framebuffer_height();
+    f32       aspect = 16.0f / 9.0f;
+    if (fb_h > 0) {
+        aspect = static_cast<f32>(fb_w) / static_cast<f32>(fb_h);
+    }
+
+    uniform_buffer_object ubo = {
+        .view = math::inverse_rigid(wc.pose),
+        .proj = math::perspective(math::radians(wc.camera.fov_y_deg),
+                                  aspect,
+                                  wc.camera.z_near,
+                                  wc.camera.z_far)};
+    _backend->update_frame_uniforms(ubo);
+
+    // record the extracted packets in parallel chunks on job workers.
+    auto packets = _command_list.get_packets();
     if (!packets.empty()) {
         const usize chunk_size = 256;
         const usize num_chunks = (packets.size() + chunk_size - 1) / chunk_size;
@@ -328,8 +418,7 @@ auto renderer_system::end_frame(ic_window* window) -> void {
         _backend->execute_recorded_commands(secondary_cmds);
     }
 
-    // 5. present frame
-    _backend->end_frame(window);
+    _backend->end_frame(wc.window);
 }
 
 }  // namespace vent

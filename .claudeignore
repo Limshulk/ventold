@@ -1,6 +1,8 @@
 # third-party libraries
 **/third_party/
 
+**/.git/
+
 # build
 build/
 out/

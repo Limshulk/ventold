@@ -1,3 +1,12 @@
+// vent engine asset.
+// default shader: camera ubo + per-draw texture, vertex-color modulated.
+// ——————————————————————
+//
+// descriptor sets are organized by update frequency (must match the layouts
+// in the vulkan backend):
+//   set 0, binding 0: per-frame camera matrices (per-window ubo ring).
+//   set 1, binding 0: per-draw combined image sampler (one set per texture).
+
 struct VertexInput {
     float3 position : POSITION;
     float3 color : COLOR;
@@ -8,8 +17,8 @@ struct UniformBuffer {
     float4x4 view;
     float4x4 proj;
 };
-[[vk::binding(0)]] ConstantBuffer<UniformBuffer> u_buffer;
-[[vk::binding(1)]] Sampler2D tex_sampler;
+[[vk::binding(0, 0)]] ConstantBuffer<UniformBuffer> u_frame;
+[[vk::binding(0, 1)]] Sampler2D tex_sampler;
 
 struct PushConstants {
     float4x4 model;
@@ -25,7 +34,7 @@ struct VertexOutput {
 [shader("vertex")]
 VertexOutput vertMain(VertexInput in) {
     VertexOutput output;
-    output.position = mul(u_buffer.proj, mul(u_buffer.view, mul(push.model, float4(in.position, 1.0))));
+    output.position = mul(u_frame.proj, mul(u_frame.view, mul(push.model, float4(in.position, 1.0))));
     output.color = in.color;
     output.uv = in.uv;
     return output;

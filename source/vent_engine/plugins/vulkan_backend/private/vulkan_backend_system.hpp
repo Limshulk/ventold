@@ -98,12 +98,40 @@ private:
         bool                              marked_for_destruction = false;
     };
     std::vector<window_surface> _surfaces;
-    std::shared_mutex           _mutex;
+    mutable std::shared_mutex   _mutex;  ///< mutable: const queries
+                                         ///< (has_surface) still need the
+                                         ///< shared lock.
 
     vulkan_swapchain* _active_swapchain =
         nullptr;  ///< the swapchain currently rendering a frame.
     ic_window* _active_window =
         nullptr;  ///< the window currently rendering a frame.
+
+    // --- descriptor layouts and pools ---
+    // —————————————————————————————————————————————————————————————————————————
+    // descriptor sets are organized by UPDATE FREQUENCY — the core organizing
+    // idea of vulkan binding:
+    //   set 0 = per-frame data (camera ubo). storage lives in each window's
+    //           swapchain (scoped to the fence that protects it, review g-1);
+    //           the backend owns only the layout.
+    //   set 1 = per-texture (combined image sampler). one set per texture,
+    //           allocated at texture creation from the pool below, bound per
+    //           draw (only on change — sorted packets make that cheap).
+    //
+    // declared BEFORE _textures on purpose: members destruct in reverse
+    // declaration order, and every texture's raii descriptor set must be
+    // freed before the pool it came from.
+
+    vk::Format _depth_format = vk::Format::eUndefined;
+
+    vk::raii::DescriptorSetLayout _frame_descriptor_set_layout   = nullptr;
+    vk::raii::DescriptorSetLayout _texture_descriptor_set_layout = nullptr;
+
+    /// @brief pool for per-texture sets (set 1). sized generously; growing
+    /// pools (or a pool-of-pools) is deliberately deferred until asset
+    /// streaming in phase 2 makes real demands known.
+    static constexpr u32     MAX_TEXTURE_DESCRIPTOR_SETS = 1024;
+    vk::raii::DescriptorPool _texture_descriptor_pool    = nullptr;
 
     // --- mesh management ---
     // —————————————————————————————————————————————————————————————————————————
@@ -123,6 +151,11 @@ private:
         VmaAllocation       allocation = nullptr;
         vk::raii::ImageView view       = nullptr;
         vk::raii::Sampler   sampler    = nullptr;
+        vk::raii::DescriptorSet
+            descriptor_set = nullptr;  ///< set 1, allocated at creation,
+                                       ///< bound per draw. this is what makes
+                                       ///< packet.texture actually mean
+                                       ///< something (review g-1.3).
     };
 
     std::unordered_map<mesh_handle, vulkan_mesh_data>  _meshes;
@@ -133,26 +166,21 @@ private:
     std::unordered_map<pipeline_handle, std::unique_ptr<class vulkan_pipeline>>
         _pipelines;
 
-    // --- global uniforms and descriptors ---
-    // —————————————————————————————————————————————————————————————————————————
-    std::vector<VkBuffer>      _global_uniform_buffers;
-    std::vector<VmaAllocation> _global_uniform_allocations;
-    std::vector<void*>         _global_uniform_mapped;
-
-    vk::Format _depth_format = vk::Format::eUndefined;
-
-    vk::raii::DescriptorSetLayout _global_descriptor_set_layout = nullptr;
-    vk::raii::DescriptorPool      _descriptor_pool              = nullptr;
-    std::vector<vk::raii::DescriptorSet> _global_descriptor_sets;
-
 public:
     // --- i_render_backend ---
     // —————————————————————————————————————————————————————————————————————————
 
-    /// @brief gets the global descriptor set layout for uniforms.
-    auto get_global_descriptor_set_layout() const
+    /// @brief gets the per-frame (set 0) descriptor set layout. used by
+    /// pipeline creation and by swapchains allocating their frame sets.
+    auto get_frame_descriptor_set_layout() const
         -> const vk::raii::DescriptorSetLayout& {
-        return _global_descriptor_set_layout;
+        return _frame_descriptor_set_layout;
+    }
+
+    /// @brief gets the per-texture (set 1) descriptor set layout.
+    auto get_texture_descriptor_set_layout() const
+        -> const vk::raii::DescriptorSetLayout& {
+        return _texture_descriptor_set_layout;
     }
 
     /// @brief gets the name of the graphics api.
@@ -171,6 +199,16 @@ public:
     /// window.
     /// @param window the window whose surface should be destroyed.
     auto destroy_surface(ic_window* window) -> void override;
+
+    /// @brief checks whether a live (not destruction-marked) surface exists
+    /// for the given window.
+    [[nodiscard]]
+    auto has_surface(const ic_window* window) const -> bool override;
+
+    /// @brief gets the windows of all live surfaces (identity only — pointers
+    /// are never dereferenced by callers).
+    [[nodiscard]]
+    auto get_surface_windows() const -> std::vector<ic_window*> override;
 
     /// @brief begins a new frame for the given window.
     /// @param window the window to begin rendering for.
@@ -196,9 +234,10 @@ public:
         -> void override;
     auto destroy_texture(texture_handle handle) -> void override;
 
-    /// @brief update global uniform buffer data.
-    /// @param ubo the uniform data to pass to the renderer.
-    auto update_global_uniforms(const uniform_buffer_object& ubo)
+    /// @brief update the per-frame uniforms of the window currently between
+    /// begin_frame and end_frame (writes the active swapchain's ring slot).
+    /// @param ubo the uniform data for this window's current frame.
+    auto update_frame_uniforms(const uniform_buffer_object& ubo)
         -> void override;
 
     // --- mesh management ---
@@ -233,8 +272,10 @@ public:
         -> void override;
 
 private:
-    auto create_global_uniforms() -> void;
-    auto destroy_global_uniforms() -> void;
+    /// @brief create the descriptor set layouts (set 0 frame, set 1 texture)
+    /// and the per-texture descriptor pool.
+    auto create_descriptor_layouts() -> bool;
+    auto destroy_descriptor_layouts() -> void;
 
     auto find_supported_format(const std::vector<vk::Format>& candidates,
                                vk::ImageTiling                tiling,

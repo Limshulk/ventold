@@ -1,4 +1,4 @@
-// vulkan_backend plugin.
+﻿// vulkan_backend plugin.
 // vulkan rendering backend implementation.
 // ——————————————————————
 //
@@ -125,7 +125,10 @@ auto vulkan_backend_system::initialize() -> bool {
         return false;
     }
 
-    create_global_uniforms();
+    if (!create_descriptor_layouts()) {
+        log()->error("vulkan", "failed to create descriptor layouts");
+        return false;
+    }
     _depth_format = find_depth_format();
 
     log()->info("vulkan", "vulkan backend initialized.");
@@ -165,6 +168,9 @@ auto vulkan_backend_system::shutdown() -> void {
     {
         std::lock_guard texture_lock(_texture_mutex);
         for (auto& [handle, tex] : _textures) {
+            // the descriptor set must be freed before its pool goes away in
+            // destroy_descriptor_layouts() below.
+            tex.descriptor_set.clear();
             tex.view.clear();
             tex.sampler.clear();
             if (tex.image) {
@@ -174,7 +180,7 @@ auto vulkan_backend_system::shutdown() -> void {
         _textures.clear();
     }
 
-    destroy_global_uniforms();
+    destroy_descriptor_layouts();
 
     if (_allocator) {
         vmaDestroyAllocator(_allocator);
@@ -657,15 +663,17 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
 
     std::unique_ptr<vulkan_swapchain> swapchain;
     try {
-        swapchain = std::make_unique<vulkan_swapchain>(_device,
-                                                       _physical_device,
-                                                       std::move(surface),
-                                                       window,
-                                                       _allocator,
-                                                       _depth_format,
-                                                       _graphics_queue_family,
-                                                       surface_present_family,
-                                                       MAX_FRAMES_IN_FLIGHT);
+        swapchain = std::make_unique<vulkan_swapchain>(
+            _device,
+            _physical_device,
+            std::move(surface),
+            window,
+            _allocator,
+            _depth_format,
+            _graphics_queue_family,
+            surface_present_family,
+            _frame_descriptor_set_layout,
+            MAX_FRAMES_IN_FLIGHT);
     } catch (const std::exception& e) {
         log()->error("vulkan",
                      "exception during vulkan_swapchain creation: {}.",
@@ -704,6 +712,30 @@ auto vulkan_backend_system::create_surface(ic_window* window) -> bool {
         "vulkan", "swapchain created for window '{}'.", window->get_title());
 
     return true;
+}
+
+auto vulkan_backend_system::has_surface(const ic_window* window) const
+    -> bool {
+    std::shared_lock lock(_mutex);
+    for (const auto& s : _surfaces) {
+        if (s.window == window && !s.marked_for_destruction) {
+            return true;
+        }
+    }
+    return false;
+}
+
+auto vulkan_backend_system::get_surface_windows() const
+    -> std::vector<ic_window*> {
+    std::shared_lock lock(_mutex);
+    std::vector<ic_window*> windows;
+    windows.reserve(_surfaces.size());
+    for (const auto& s : _surfaces) {
+        if (!s.marked_for_destruction) {
+            windows.push_back(s.window);
+        }
+    }
+    return windows;
 }
 
 auto vulkan_backend_system::destroy_surface(ic_window* window) -> void {
@@ -832,7 +864,8 @@ auto vulkan_backend_system::create_graphics_pipeline(pipeline_handle handle,
 
     _pipelines[handle] =
         std::make_unique<vulkan_pipeline>(_device,
-                                          get_global_descriptor_set_layout(),
+                                          _frame_descriptor_set_layout,
+                                          _texture_descriptor_set_layout,
                                           desc,
                                           format,
                                           _depth_format,
@@ -846,142 +879,83 @@ auto vulkan_backend_system::destroy_graphics_pipeline(pipeline_handle handle)
     _pipelines.erase(handle);
 }
 
-auto vulkan_backend_system::create_global_uniforms() -> void {
-    // 1. descriptor set layout
-    vk::DescriptorSetLayoutBinding ubo_binding {
-        .binding            = 0,
-        .descriptorType     = vk::DescriptorType::eUniformBuffer,
-        .descriptorCount    = 1,
-        .stageFlags         = vk::ShaderStageFlagBits::eVertex,
-        .pImmutableSamplers = nullptr,
-    };
+auto vulkan_backend_system::create_descriptor_layouts() -> bool {
+    // descriptor sets are split by update frequency (see header comment):
+    // set 0 changes per frame (camera ubo, storage owned per-window by the
+    // swapchains), set 1 changes per draw (texture). splitting them is what
+    // allows per-window frame sets to exist without every set needing a
+    // texture written into it.
 
-    vk::DescriptorSetLayoutBinding sampler_binding {
-        .binding            = 1,
-        .descriptorType     = vk::DescriptorType::eCombinedImageSampler,
-        .descriptorCount    = 1,
-        .stageFlags         = vk::ShaderStageFlagBits::eFragment,
-        .pImmutableSamplers = nullptr,
-    };
-
-    std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {ubo_binding,
-                                                              sampler_binding};
-
-    vk::DescriptorSetLayoutCreateInfo layout_info {
-        .bindingCount = static_cast<u32>(bindings.size()),
-        .pBindings    = bindings.data(),
-    };
-    _global_descriptor_set_layout =
-        vk::raii::DescriptorSetLayout(_device, layout_info);
-
-    // 2. create buffers.
-    // one uniform buffer + descriptor set per frame in flight (not per swapchain
-    // image): the cpu writes the ring slot for the frame it is preparing, and
-    // the matching fence proves the gpu is done with that slot before we reuse
-    // it. sized off the single MAX_FRAMES_IN_FLIGHT knob, no longer a local "3".
-    const u32    max_frames  = MAX_FRAMES_IN_FLIGHT;
-    VkDeviceSize buffer_size = sizeof(uniform_buffer_object);
-
-    _global_uniform_buffers.resize(max_frames);
-    _global_uniform_allocations.resize(max_frames);
-    _global_uniform_mapped.resize(max_frames);
-
-    for (size_t i = 0; i < max_frames; i++) {
-        VkBufferCreateInfo buffer_info {
-            .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size        = buffer_size,
-            .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    try {
+        // set 0: per-frame camera ubo.
+        vk::DescriptorSetLayoutBinding ubo_binding {
+            .binding            = 0,
+            .descriptorType     = vk::DescriptorType::eUniformBuffer,
+            .descriptorCount    = 1,
+            .stageFlags         = vk::ShaderStageFlagBits::eVertex,
+            .pImmutableSamplers = nullptr,
         };
-
-        VmaAllocationCreateInfo alloc_info {
-            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO,
+        vk::DescriptorSetLayoutCreateInfo frame_layout_info {
+            .bindingCount = 1,
+            .pBindings    = &ubo_binding,
         };
+        _frame_descriptor_set_layout =
+            vk::raii::DescriptorSetLayout(_device, frame_layout_info);
 
-        VmaAllocationInfo alloc_result_info;
+        // set 1: per-texture combined image sampler.
+        vk::DescriptorSetLayoutBinding sampler_binding {
+            .binding            = 0,
+            .descriptorType     = vk::DescriptorType::eCombinedImageSampler,
+            .descriptorCount    = 1,
+            .stageFlags         = vk::ShaderStageFlagBits::eFragment,
+            .pImmutableSamplers = nullptr,
+        };
+        vk::DescriptorSetLayoutCreateInfo texture_layout_info {
+            .bindingCount = 1,
+            .pBindings    = &sampler_binding,
+        };
+        _texture_descriptor_set_layout =
+            vk::raii::DescriptorSetLayout(_device, texture_layout_info);
 
-        vmaCreateBuffer(_allocator,
-                        &buffer_info,
-                        &alloc_info,
-                        &_global_uniform_buffers[i],
-                        &_global_uniform_allocations[i],
-                        &alloc_result_info);
-
-        _global_uniform_mapped[i] = alloc_result_info.pMappedData;
+        // pool for per-texture sets. FreeDescriptorSet: texture sets are
+        // freed individually on destroy_texture (raii), unlike the per-window
+        // frame pools which die whole with their swapchain.
+        vk::DescriptorPoolSize pool_size {
+            vk::DescriptorType::eCombinedImageSampler,
+            MAX_TEXTURE_DESCRIPTOR_SETS};
+        vk::DescriptorPoolCreateInfo pool_info {
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets       = MAX_TEXTURE_DESCRIPTOR_SETS,
+            .poolSizeCount = 1,
+            .pPoolSizes    = &pool_size,
+        };
+        _texture_descriptor_pool =
+            vk::raii::DescriptorPool(_device, pool_info);
+    } catch (const vk::SystemError& err) {
+        log()->error("vulkan",
+                     "failed to create descriptor layouts: {}",
+                     err.what());
+        return false;
     }
 
-    // 3. descriptor pool
-    std::array<vk::DescriptorPoolSize, 2> pool_sizes = {
-        vk::DescriptorPoolSize {vk::DescriptorType::eUniformBuffer, max_frames},
-        vk::DescriptorPoolSize {vk::DescriptorType::eCombinedImageSampler,
-                                max_frames}};
-
-    vk::DescriptorPoolCreateInfo pool_info {
-        .flags         = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-        .maxSets       = max_frames,
-        .poolSizeCount = static_cast<u32>(pool_sizes.size()),
-        .pPoolSizes    = pool_sizes.data(),
-    };
-    _descriptor_pool = vk::raii::DescriptorPool(_device, pool_info);
-
-    // 4. allocate descriptor sets
-    std::vector<vk::DescriptorSetLayout> layouts(
-        max_frames, *_global_descriptor_set_layout);
-    vk::DescriptorSetAllocateInfo alloc_info {
-        .descriptorPool     = *_descriptor_pool,
-        .descriptorSetCount = max_frames,
-        .pSetLayouts        = layouts.data(),
-    };
-
-    _global_descriptor_sets = vk::raii::DescriptorSets(_device, alloc_info);
-
-    // 5. write descriptor sets
-    for (size_t i = 0; i < max_frames; i++) {
-        vk::DescriptorBufferInfo buffer_info {
-            .buffer = _global_uniform_buffers[i],
-            .offset = 0,
-            .range  = sizeof(uniform_buffer_object),
-        };
-
-        vk::WriteDescriptorSet descriptor_write {
-            .dstSet          = *_global_descriptor_sets[i],
-            .dstBinding      = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType  = vk::DescriptorType::eUniformBuffer,
-            .pBufferInfo     = &buffer_info,
-        };
-
-        _device.updateDescriptorSets(descriptor_write, nullptr);
-    }
+    return true;
 }
 
-auto vulkan_backend_system::destroy_global_uniforms() -> void {
-    _global_descriptor_sets.clear();
-    _descriptor_pool              = nullptr;
-    _global_descriptor_set_layout = nullptr;
-
-    for (size_t i = 0; i < _global_uniform_buffers.size(); i++) {
-        vmaDestroyBuffer(_allocator,
-                         _global_uniform_buffers[i],
-                         _global_uniform_allocations[i]);
-    }
-    _global_uniform_buffers.clear();
-    _global_uniform_allocations.clear();
-    _global_uniform_mapped.clear();
+auto vulkan_backend_system::destroy_descriptor_layouts() -> void {
+    // all texture sets must already be freed (shutdown drains _textures
+    // first); per-window frame sets die with their swapchains in _surfaces.
+    _texture_descriptor_pool       = nullptr;
+    _texture_descriptor_set_layout = nullptr;
+    _frame_descriptor_set_layout   = nullptr;
 }
 
-auto vulkan_backend_system::update_global_uniforms(
+auto vulkan_backend_system::update_frame_uniforms(
     const uniform_buffer_object& ubo) -> void {
-    if (!_active_swapchain || _global_uniform_mapped.empty())
-        return;
-
-    u32 frame = _active_swapchain->get_current_frame_index();
-    if (frame < _global_uniform_mapped.size() &&
-        _global_uniform_mapped[frame]) {
-        std::memcpy(_global_uniform_mapped[frame], &ubo, sizeof(ubo));
+    // the ring slot belongs to the active window's swapchain and is provably
+    // free: begin_frame waited on exactly the fence protecting it (review
+    // g-1 — this per-window scoping is what makes multi-camera race-free).
+    if (_active_swapchain) {
+        _active_swapchain->write_frame_uniforms(ubo);
     }
 }
 
@@ -1109,6 +1083,16 @@ auto vulkan_backend_system::record_command_chunk(
     vk::Rect2D scissor {.offset = {0, 0}, .extent = extent};
     cmd->setScissor(0, scissor);
 
+    // state-change elision: packets arrive sorted, so identical pipelines and
+    // textures are adjacent — re-bind only when the state actually changes.
+    // this is the entire payoff of sorting the command list; re-binding every
+    // packet would make the sort pure ceremony. state must still be
+    // established once at the start of every secondary buffer (inherited
+    // state does not carry bindings), which the "nothing bound yet" initial
+    // values below guarantee.
+    vulkan_pipeline* bound_pipeline = nullptr;
+    texture_handle   bound_texture  = INVALID_TEXTURE_HANDLE;
+
     for (const auto& packet : chunk) {
         // resolve the pipeline once. a stale handle here would otherwise throw
         // std::out_of_range from _pipelines.at() on this worker thread, which
@@ -1131,29 +1115,66 @@ auto vulkan_backend_system::record_command_chunk(
             }
         }
 
-        if (data.buffer) {
-            vk::DeviceSize offset = 0;
-            cmd->bindVertexBuffers(0, {data.buffer}, {offset});
+        if (!data.buffer) {
+            continue;
+        }
 
+        // resolve the packet's texture descriptor set (set 1). a raw
+        // vk::DescriptorSet copy is fine: the set lives until destroy_texture,
+        // and textures — like pipelines — are not destroyed mid-frame.
+        vk::DescriptorSet texture_set = nullptr;
+        {
+            std::lock_guard lock(_texture_mutex);
+            auto            it = _textures.find(packet.texture);
+            if (it != _textures.end() && *it->second.descriptor_set) {
+                texture_set = *it->second.descriptor_set;
+            }
+        }
+        if (!texture_set) {
+            // no texture, nothing sensible to sample — skip. the frontend
+            // guarantees a placeholder texture, so this only happens on a
+            // genuinely stale handle.
+            continue;
+        }
+
+        if (pipeline != bound_pipeline) {
             cmd->bindPipeline(vk::PipelineBindPoint::eGraphics,
                               pipeline->get_pipeline());
+            // set 0 (per-frame camera ubo, owned by this window's swapchain)
+            // is bound per pipeline-layout, not per draw.
+            cmd->bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics,
+                pipeline->get_pipeline_layout(),
+                0,
+                {_active_swapchain->get_frame_descriptor_set(current_frame)},
+                {});
+            bound_pipeline = pipeline;
+            // a new pipeline layout invalidates set compatibility — force the
+            // texture set to re-bind.
+            bound_texture = INVALID_TEXTURE_HANDLE;
+        }
+
+        if (packet.texture != bound_texture) {
             cmd->bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                     pipeline->get_pipeline_layout(),
-                                    0,
-                                    {*_global_descriptor_sets[current_frame]},
+                                    1,
+                                    {texture_set},
                                     {});
-            cmd->pushConstants<math::mat4>(pipeline->get_pipeline_layout(),
-                                           vk::ShaderStageFlagBits::eVertex,
-                                           0,
-                                           packet.transform);
+            bound_texture = packet.texture;
+        }
 
-            if (data.index_buffer) {
-                cmd->bindIndexBuffer(
-                    data.index_buffer, 0, vk::IndexType::eUint32);
-                cmd->drawIndexed(data.index_count, 1, 0, 0, 0);
-            } else {
-                cmd->draw(data.vertex_count, 1, 0, 0);
-            }
+        vk::DeviceSize offset = 0;
+        cmd->bindVertexBuffers(0, {data.buffer}, {offset});
+        cmd->pushConstants<math::mat4>(pipeline->get_pipeline_layout(),
+                                       vk::ShaderStageFlagBits::eVertex,
+                                       0,
+                                       packet.transform);
+
+        if (data.index_buffer) {
+            cmd->bindIndexBuffer(data.index_buffer, 0, vk::IndexType::eUint32);
+            cmd->drawIndexed(data.index_count, 1, 0, 0, 0);
+        } else {
+            cmd->draw(data.vertex_count, 1, 0, 0);
         }
     }
 
@@ -1374,30 +1395,52 @@ auto vulkan_backend_system::create_texture(texture_handle      handle,
     };
     tex_data.sampler = vk::raii::Sampler(_device, sampler_info);
 
-    // 5. save
+    // 5. per-texture descriptor set (set 1), allocated once at creation and
+    // bound per draw. this replaces the old "write binding 1 of the global
+    // sets" approach, which (a) could only ever represent ONE texture and
+    // (b) updated sets that in-flight command buffers referenced — a vuid
+    // violation that only passed because the first texture uploaded before
+    // anything was in flight. a freshly allocated set references nothing, so
+    // writing it here is always legal.
+    try {
+        vk::DescriptorSetAllocateInfo set_alloc_info {
+            .descriptorPool     = *_texture_descriptor_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts        = &*_texture_descriptor_set_layout,
+        };
+        tex_data.descriptor_set = std::move(
+            vk::raii::DescriptorSets(_device, set_alloc_info).front());
+    } catch (const vk::SystemError& err) {
+        log()->error("vulkan",
+                     "failed to allocate texture descriptor set: {}",
+                     err.what());
+        tex_data.view.clear();
+        tex_data.sampler.clear();
+        vmaDestroyImage(_allocator, tex_data.image, tex_data.allocation);
+        return;
+    }
+
+    vk::DescriptorImageInfo image_info_write {
+        .sampler     = *tex_data.sampler,
+        .imageView   = *tex_data.view,
+        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+    };
+
+    vk::WriteDescriptorSet descriptor_write {
+        .dstSet          = *tex_data.descriptor_set,
+        .dstBinding      = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType  = vk::DescriptorType::eCombinedImageSampler,
+        .pImageInfo      = &image_info_write,
+    };
+
+    _device.updateDescriptorSets(descriptor_write, nullptr);
+
+    // 6. save
     {
         std::lock_guard lock(_texture_mutex);
         _textures[handle] = std::move(tex_data);
-    }
-
-    // 6. update global descriptors
-    for (size_t i = 0; i < _global_descriptor_sets.size(); i++) {
-        vk::DescriptorImageInfo image_info_write {
-            .sampler     = *_textures[handle].sampler,
-            .imageView   = *_textures[handle].view,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        };
-
-        vk::WriteDescriptorSet descriptor_write {
-            .dstSet          = *_global_descriptor_sets[i],
-            .dstBinding      = 1,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType  = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo      = &image_info_write,
-        };
-
-        _device.updateDescriptorSets(descriptor_write, nullptr);
     }
 }
 
@@ -1410,6 +1453,7 @@ auto vulkan_backend_system::destroy_texture(texture_handle handle) -> void {
     std::lock_guard lock(_texture_mutex);
     auto            it = _textures.find(handle);
     if (it != _textures.end()) {
+        it->second.descriptor_set.clear();  // returns the set to the pool.
         it->second.view.clear();
         it->second.sampler.clear();
         vmaDestroyImage(_allocator, it->second.image, it->second.allocation);

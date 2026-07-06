@@ -38,7 +38,15 @@ function(vent_compile_shaders)
 
     foreach(SOURCE IN LISTS ARG_SOURCES)
         get_filename_component(FILE_NAME "${SOURCE}" NAME)
-        
+
+        # sources may be given relative to the calling CMakeLists (apps) or as
+        # absolute paths (engine assets compiled from vent_create_client).
+        if(IS_ABSOLUTE "${SOURCE}")
+            set(SOURCE_PATH "${SOURCE}")
+        else()
+            set(SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE}")
+        endif()
+
         # append .spv to the original filename to make it clear.
         set(OUTPUT_FILE "${ARG_OUTPUT_DIR}/${FILE_NAME}.spv")
 
@@ -46,8 +54,8 @@ function(vent_compile_shaders)
         add_custom_command(
             OUTPUT "${OUTPUT_FILE}"
             COMMAND "${VENT_SLANGC_EXECUTABLE}"
-            ARGS "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE}" -target spirv -o "${OUTPUT_FILE}"
-            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE}"
+            ARGS "${SOURCE_PATH}" -target spirv -o "${OUTPUT_FILE}"
+            DEPENDS "${SOURCE_PATH}"
             COMMENT "compiling slang shader: ${FILE_NAME}"
             VERBATIM
         )

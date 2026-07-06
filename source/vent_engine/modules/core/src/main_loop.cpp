@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <thread>
 
 namespace vent {
 
@@ -34,6 +33,16 @@ auto main_loop::sync_runnables() -> void {
         std::erase(_runnables, r);
     }
     _pending_remove.clear();
+
+    // order runnables by frame phase (simulate before render, see
+    // ir_runnable.hpp). stable_sort keeps registration order within a phase,
+    // so the frame order is fully deterministic across runs — a render-before-
+    // update bug would otherwise show up as a nondeterministic one-frame lag.
+    std::stable_sort(_runnables.begin(),
+                     _runnables.end(),
+                     [](const ir_runnable* a, const ir_runnable* b) {
+                         return a->run_phase() < b->run_phase();
+                     });
 }
 
 // --- configuration ---

@@ -16,9 +16,12 @@ namespace vent {
 
 class vulkan_pipeline final {
 public:
+    /// @param frame_set_layout set 0: per-frame camera ubo.
+    /// @param texture_set_layout set 1: per-texture combined image sampler.
     vulkan_pipeline(
         const vk::raii::Device&              device,
-        const vk::raii::DescriptorSetLayout& global_descriptor_set_layout,
+        const vk::raii::DescriptorSetLayout& frame_set_layout,
+        const vk::raii::DescriptorSetLayout& texture_set_layout,
         const pipeline_desc&                 desc,
         vk::Format                           swapchain_image_format,
         vk::Format                           depth_image_format,

@@ -13,9 +13,9 @@
 #include <_vent/renderer/texture_desc.hpp>
 #include <_vent/renderer/vertex.hpp>
 
-#include <memory>
-#include <string_view>
 #include <span>
+#include <string_view>
+#include <vector>
 
 namespace vent {
 
@@ -64,6 +64,18 @@ public:
     /// @param window the window whose surface should be destroyed.
     virtual auto destroy_surface(ic_window* window) -> void = 0;
 
+    /// @brief check whether a live (not destruction-marked) surface exists for
+    /// the given window. used by the frontend's per-frame reconcile pass.
+    [[nodiscard]]
+    virtual auto has_surface(const ic_window* window) const -> bool = 0;
+
+    /// @brief get the windows of all live surfaces. used by the frontend to
+    /// detect surfaces whose window no longer exists (reconcile pass).
+    /// @note the returned pointers are only compared for identity, never
+    /// dereferenced — a window may already be destroyed.
+    [[nodiscard]]
+    virtual auto get_surface_windows() const -> std::vector<ic_window*> = 0;
+
     // --- render loop ---
     // —————————————————————————————————————————————————————————————————————————
 
@@ -93,9 +105,15 @@ public:
         -> void                                                 = 0;
     virtual auto destroy_texture(texture_handle handle) -> void = 0;
 
-    /// @brief update global uniform buffer data.
-    /// @param ubo the uniform data to pass to the renderer.
-    virtual auto update_global_uniforms(const uniform_buffer_object& ubo)
+    /// @brief update the per-frame uniform data (camera matrices) for the
+    /// window currently between begin_frame and end_frame.
+    /// @note must be called after begin_frame: the uniform ring slot belongs
+    /// to that window's swapchain and is only provably free once its frame
+    /// fence has been waited on (which begin_frame does). this is what makes
+    /// per-window cameras race-free — see "which fence proves this memory is
+    /// free?" in the threading notes.
+    /// @param ubo the uniform data for this window's current frame.
+    virtual auto update_frame_uniforms(const uniform_buffer_object& ubo)
         -> void = 0;
 
     // --- mesh management ---

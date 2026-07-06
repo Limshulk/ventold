@@ -2,6 +2,8 @@
 vent (lowercase!) is a high-performance, modular C++ game engine designed for flexibility and ease of use. It emphasizes asynchronous programming, abstraction, and module- & plugin-based architecture to allow developers to build complex graphical applications and games efficiently without dealing with low-level programming.
 vent is a personal project with the goal of understanding engine programming and graphics programming.
 
+> new here (human or agent)? read `artifacts/20260707_0024_claude_vent_handbook.md` first — it explains the goals, architecture, boot/frame flow, threading model, and has a task→file map, so you don't need to scan the codebase for orientation. this file (AGENTS.md) remains the authority on rules and conventions.
+
 ## Core Principles ( not ordered by importance )
 
 1. **async-only**: anything that can be async, must be async. always use multithreaded designs and utilize both GPU and CPU to its fullest.
@@ -55,6 +57,16 @@ This file needs to be kept up-to-date if any changes occur that require addition
 - NEVER is ANY api-specific code allowed in client / other modules. only allowed in modules with api-specific names (e.g. `vulkan_backend_system`).
 - ideally, the client developer NEVER has to even look into renderer modules and NEVER has to use any renderer calls.
 - the frontend (module: renderer) has the central authority. backends just implement the frontend's api. no logic must be implemented by the backend except what is required to implement the frontend's api.
+- the ENGINE owns the frame loop. the renderer runs as an `ir_runnable` in the render phase; clients describe scenes via world components (mesh, transform, camera) and never call render apis. `ic_renderer` stays (almost) empty.
+- pipelines and textures are immutable between a frame's begin and end — command recording on job workers relies on this to read the backend maps without locks.
+
+### Frame Contract
+- the frame is a pipeline of phases, ordered by `ir_runnable::run_phase()` (stable-sorted, deterministic): `run_phase_simulate` (client/gameplay — world mutation allowed) → `run_phase_render` (renderer — the world is READ-ONLY by contract; the renderer extracts a by-value snapshot and renders from it).
+- per-frame gpu resources are scoped to the fence that protects them: frame uniforms live per window inside the swapchain, written only between that window's fence wait (begin_frame) and submit. before writing memory the gpu may read, always answer "which fence proves this memory is free?".
+
+### Asset Mounts
+- the asset system mounts `vent://` → `<exe_dir>/engine_assets` and `app://` → `<exe_dir>` by default (exe-relative, NEVER cwd-relative — apps must run from any working directory). clients may re-mount.
+- `vent://` carries engine-owned defaults (default + error shaders, copied by `vent_create_client`). the renderer never reaches into `app://`.
 
 ### Comments
 - all lowercase, ending with period.
@@ -156,3 +168,4 @@ vent/                       # root folder
      1. what was wrong / missing.
      2. what have you done / what is implemented now.
      3. what can i learn by that implementation / what is the message.
+  5. update docs/handbook.md to represent the most up-to-date state of the code.

@@ -439,6 +439,26 @@ inline constexpr const char* app_id = \"${APP_NAME}\";
     # client includes the generated header.
     target_include_directories(${CLIENT_TARGET} PRIVATE "${BUILD_INFO_DIR}")
 
+    # --- engine assets ---
+    # ——————————————————————————————————————————————————————————————————————————
+    # every client ships the engine's default assets under engine_assets/.
+    # the asset system mounts vent:// -> <exe_dir>/engine_assets at startup,
+    # so the renderer's default + error shaders are always resolvable no
+    # matter where the app was copied or launched from.
+    # note: in-workspace builds only for now — the standalone sdk path
+    # (vent-config.cmake.in) still needs the same step once the sdk carries
+    # the engine assets.
+
+    if(DEFINED VENT_ENGINE_DIR AND EXISTS "${VENT_ENGINE_DIR}/assets/shaders")
+        vent_compile_shaders(
+            TARGET ${LAUNCHER_TARGET}
+            OUTPUT_DIR "${APP_OUTPUT_DIR}/engine_assets/shaders"
+            SOURCES
+                "${VENT_ENGINE_DIR}/assets/shaders/default.slang"
+                "${VENT_ENGINE_DIR}/assets/shaders/error.slang"
+        )
+    endif()
+
     # --- register with vent_apps aggregate target ---
     # ——————————————————————————————————————————————————————————————————————————
 

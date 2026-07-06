@@ -9,18 +9,21 @@
 
 #include <_vent/accessors.hpp>
 
+#include <cstring>
+
 namespace vent {
 
 vulkan_swapchain::vulkan_swapchain(
-    const vk::raii::Device&         device,
-    const vk::raii::PhysicalDevice& physical_device,
-    vk::raii::SurfaceKHR            surface,
-    ic_window*                      window,
-    VmaAllocator                    allocator,
-    vk::Format                      depth_format,
-    u32                             graphics_family,
-    u32                             present_family,
-    u32                             frames_in_flight)
+    const vk::raii::Device&              device,
+    const vk::raii::PhysicalDevice&      physical_device,
+    vk::raii::SurfaceKHR                 surface,
+    ic_window*                           window,
+    VmaAllocator                         allocator,
+    vk::Format                           depth_format,
+    u32                                  graphics_family,
+    u32                                  present_family,
+    const vk::raii::DescriptorSetLayout& frame_set_layout,
+    u32                                  frames_in_flight)
     : _device(device),
       _physical_device(physical_device),
       _surface(std::move(surface)),
@@ -34,7 +37,7 @@ vulkan_swapchain::vulkan_swapchain(
     // initialize the swapchain and all required resources.
     if (!create_swapchain() || !create_image_views() ||
         !create_depth_resources() || !create_command_pool() ||
-        !create_sync_objects()) {
+        !create_sync_objects() || !create_frame_uniforms(frame_set_layout)) {
         log()->error("vulkan",
                      "failed to initialize swapchain for window '{}'.",
                      _window->get_title());
@@ -43,6 +46,18 @@ vulkan_swapchain::vulkan_swapchain(
 
 vulkan_swapchain::~vulkan_swapchain() {
     _device.waitIdle();
+
+    // per-frame uniform ring: descriptor sets/pool are raii, but the vma
+    // buffers are raw and must be freed explicitly (mirrors the depth image).
+    _frame_descriptor_sets.clear();
+    _descriptor_pool.clear();
+    for (size_t i = 0; i < _uniform_buffers.size(); ++i) {
+        vmaDestroyBuffer(_allocator, _uniform_buffers[i],
+                         _uniform_allocations[i]);
+    }
+    _uniform_buffers.clear();
+    _uniform_allocations.clear();
+    _uniform_mapped.clear();
 
     _depth_image_view.clear();
     if (_depth_image) {
@@ -478,6 +493,109 @@ auto vulkan_swapchain::create_sync_objects() -> bool {
         return false;
     }
     return true;
+}
+
+auto vulkan_swapchain::create_frame_uniforms(
+    const vk::raii::DescriptorSetLayout& frame_set_layout) -> bool {
+    log()->trace("vulkan", "creating per-frame uniform ring");
+
+    // one persistently mapped uniform buffer per frame in flight. the slot
+    // for frame index N is only rewritten after begin_frame has waited on
+    // fence N — that fence is the proof the gpu no longer reads the slot.
+    const VkDeviceSize buffer_size = sizeof(uniform_buffer_object);
+
+    _uniform_buffers.resize(_max_frames_in_flight);
+    _uniform_allocations.resize(_max_frames_in_flight);
+    _uniform_mapped.resize(_max_frames_in_flight);
+
+    for (u32 i = 0; i < _max_frames_in_flight; ++i) {
+        VkBufferCreateInfo buffer_info {
+            .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size        = buffer_size,
+            .usage       = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        };
+
+        VmaAllocationCreateInfo alloc_info {
+            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+        };
+
+        VmaAllocationInfo alloc_result_info;
+
+        if (vmaCreateBuffer(_allocator,
+                            &buffer_info,
+                            &alloc_info,
+                            &_uniform_buffers[i],
+                            &_uniform_allocations[i],
+                            &alloc_result_info) != VK_SUCCESS) {
+            log()->error("vulkan", "failed to create frame uniform buffer.");
+            return false;
+        }
+
+        _uniform_mapped[i] = alloc_result_info.pMappedData;
+    }
+
+    // per-swapchain descriptor pool: pool lifetime = surface lifetime, so
+    // teardown is automatic. sized exactly for this window's frame sets.
+    vk::DescriptorPoolSize pool_size {vk::DescriptorType::eUniformBuffer,
+                                      _max_frames_in_flight};
+    vk::DescriptorPoolCreateInfo pool_info {
+        .flags         = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+        .maxSets       = _max_frames_in_flight,
+        .poolSizeCount = 1,
+        .pPoolSizes    = &pool_size,
+    };
+
+    try {
+        _descriptor_pool = vk::raii::DescriptorPool(_device, pool_info);
+
+        std::vector<vk::DescriptorSetLayout> layouts(_max_frames_in_flight,
+                                                     *frame_set_layout);
+        vk::DescriptorSetAllocateInfo alloc_info {
+            .descriptorPool     = *_descriptor_pool,
+            .descriptorSetCount = _max_frames_in_flight,
+            .pSetLayouts        = layouts.data(),
+        };
+        _frame_descriptor_sets = vk::raii::DescriptorSets(_device, alloc_info);
+    } catch (const vk::SystemError& err) {
+        log()->error("vulkan",
+                     "failed to create frame descriptor sets: {}",
+                     err.what());
+        return false;
+    }
+
+    // point each set at its buffer — done once; the buffer contents change
+    // per frame, the binding never does.
+    for (u32 i = 0; i < _max_frames_in_flight; ++i) {
+        vk::DescriptorBufferInfo buffer_info {
+            .buffer = _uniform_buffers[i],
+            .offset = 0,
+            .range  = sizeof(uniform_buffer_object),
+        };
+
+        vk::WriteDescriptorSet descriptor_write {
+            .dstSet          = *_frame_descriptor_sets[i],
+            .dstBinding      = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType  = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo     = &buffer_info,
+        };
+
+        _device.updateDescriptorSets(descriptor_write, nullptr);
+    }
+
+    return true;
+}
+
+auto vulkan_swapchain::write_frame_uniforms(const uniform_buffer_object& ubo)
+    -> void {
+    if (_current_frame < _uniform_mapped.size() &&
+        _uniform_mapped[_current_frame]) {
+        std::memcpy(_uniform_mapped[_current_frame], &ubo, sizeof(ubo));
+    }
 }
 
 auto vulkan_swapchain::recreate() -> bool {

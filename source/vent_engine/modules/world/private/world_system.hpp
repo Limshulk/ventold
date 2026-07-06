@@ -62,6 +62,12 @@ public:
     auto set_mesh(entity e, const mesh_component& mesh) -> void override;
     auto get_mesh(entity e) const -> const mesh_component* override;
 
+    auto set_camera(entity e, const camera_component& camera) -> void override;
+    auto get_camera(entity e) const -> const camera_component* override;
+
+    auto set_active_camera(entity e, ic_window* window) -> void override;
+    auto get_active_camera(const ic_window* window) const -> entity override;
+
     auto get_renderable_entities() const -> std::span<const entity> override;
 
 private:
@@ -69,9 +75,23 @@ private:
 
     std::vector<entity> _active_entities;
     std::vector<entity> _renderable_entities; // cache of entities with a mesh component
+    std::vector<entity> _camera_entities;  ///< cache of entities with a camera
+                                           ///< component, in creation order —
+                                           ///< "first camera" resolution must
+                                           ///< be deterministic, and map
+                                           ///< iteration order is not.
 
     std::unordered_map<entity, transform_component> _transforms;
     std::unordered_map<entity, mesh_component> _meshes;
+    std::unordered_map<entity, camera_component> _cameras;
+
+    /// @brief default camera used by windows without an explicit assignment.
+    entity _default_camera = INVALID_ENTITY;
+
+    /// @brief explicit per-window camera assignments. keyed by window pointer
+    /// only for identity (never dereferenced here), so a destroyed window
+    /// simply leaves a stale entry that resolves like any unassigned window.
+    std::unordered_map<const ic_window*, entity> _window_cameras;
 };
 
 }  // namespace vent

@@ -11,3 +11,4 @@ Additional Claude-specific instructions:
 - Build the project after significant changes.
 - If compilation fails, fix all errors before finishing.
 - Prefer small edits over large monolithic changes.
+- With every code modification, /docs/handbook.md must be updated to represent the most up-to-date state of the code.

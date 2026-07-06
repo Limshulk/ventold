@@ -11,7 +11,8 @@ vent_create_module(
         
         # core module sources
         src/vent_engine_entry.cpp
-        
+
+        src/executable_path.cpp
         src/main_loop.cpp
         src/plugin_manager.cpp
         src/system_creator.cpp

@@ -24,13 +24,9 @@ vent_create_client(
         src/minimal.cpp
 )
 
-vent_compile_shaders(
-    TARGET minimal
-    OUTPUT_DIR "${VENT_APPS_OUTPUT_DIR}/minimal/assets/shaders"
-    SOURCES
-        assets/shaders/dummy.slang
-        assets/shaders/shader.slang
-)
+# no app shaders anymore: the engine ships its default + error shaders in
+# engine_assets/ (compiled and copied by vent_create_client). apps only add
+# shaders here once they have custom materials.
 
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/texture.jpg"
      DESTINATION "${VENT_APPS_OUTPUT_DIR}/minimal/assets")

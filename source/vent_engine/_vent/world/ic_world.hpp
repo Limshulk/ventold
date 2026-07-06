@@ -16,6 +16,9 @@
 
 namespace vent {
 
+// forward declarations.
+class ic_window;
+
 /// @brief an opaque handle representing an entity in the world.
 using entity                    = u64;
 constexpr entity INVALID_ENTITY = 0;
@@ -30,6 +33,18 @@ struct transform_component {
 struct mesh_component {
     std::string model_path;
     std::string texture_path;
+};
+
+/// @brief makes an entity a camera. the camera is scene state, not a render
+/// setting: the renderer derives the view matrix from the entity's transform
+/// (the camera pose, i.e. camera-to-world) and the projection from these
+/// parameters plus the target window's actual framebuffer aspect each frame —
+/// so resizing a window fixes the aspect automatically and clients never
+/// touch a matrix.
+struct camera_component {
+    f32 fov_y_deg = 60.0f;   ///< vertical field of view in degrees.
+    f32 z_near    = 0.1f;    ///< near clip plane distance.
+    f32 z_far     = 100.0f;  ///< far clip plane distance.
 };
 
 class ic_world {
@@ -67,6 +82,33 @@ public:
     /// @brief retrieve the mesh component of an entity.
     /// @return pointer to the component, or nullptr if it doesn't exist.
     virtual auto get_mesh(entity e) const -> const mesh_component* = 0;
+
+    /// @brief attach or update a camera component on an entity.
+    virtual auto set_camera(entity e, const camera_component& camera)
+        -> void = 0;
+
+    /// @brief retrieve the camera component of an entity.
+    /// @return pointer to the component, or nullptr if it doesn't exist.
+    virtual auto get_camera(entity e) const -> const camera_component* = 0;
+
+    // --- camera assignment ---
+    // —————————————————————————————————————————————————————————————————————————
+
+    /// @brief assign a camera entity to a window (or set the default camera).
+    /// @param e the camera entity (must have a camera component to render).
+    /// @param window the window this camera renders to. nullptr sets the
+    /// default camera used by every window without an explicit assignment.
+    virtual auto set_active_camera(entity e, ic_window* window = nullptr)
+        -> void = 0;
+
+    /// @brief resolve the camera entity for a window. resolution order:
+    /// explicit assignment → default camera → first entity with a camera
+    /// component. the renderer falls back to a built-in camera if this
+    /// returns INVALID_ENTITY, so every window always renders something.
+    /// @return the camera entity, or INVALID_ENTITY if none exists.
+    [[nodiscard]]
+    virtual auto get_active_camera(const ic_window* window) const
+        -> entity = 0;
 
     // --- system queries ---
     // —————————————————————————————————————————————————————————————————————————

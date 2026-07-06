@@ -9,6 +9,7 @@
 #include <_vent/asset/image.hpp>
 
 #include <core/system/registration.hpp>
+#include <core/utils/executable_path.hpp>
 
 #include <cstring>
 #include <filesystem>
@@ -27,8 +28,22 @@ namespace vent {
 auto asset_system::initialize() -> bool {
 
     log()->trace("asset", "initializing asset system...");
-    // todo: mount engine assets automatically?
-    // we could do this in the launcher, but for now we'll do it manually.
+
+    // default mounts, anchored to the EXECUTABLE's directory — never the
+    // current working directory. mounts are a contract about deployment:
+    // "copy the app folder anywhere and run it" only holds if paths resolve
+    // relative to the exe. clients can still mount() over these defaults.
+    //   vent:// → <exe_dir>/engine_assets   (engine-owned: default shaders …)
+    //   app://  → <exe_dir>                  (the app's own files)
+    const auto exe_dir = get_executable_directory();
+    if (exe_dir.empty()) {
+        log()->error("asset",
+                     "failed to determine the executable directory — asset "
+                     "mounts would depend on the working directory.");
+        return false;
+    }
+    mount("vent://", (exe_dir / "engine_assets").string());
+    mount("app://", exe_dir.string());
 
     log()->trace("asset", "initialized asset system.");
     return true;

@@ -14,7 +14,8 @@ namespace vent {
 
 vulkan_pipeline::vulkan_pipeline(
     const vk::raii::Device&              device,
-    const vk::raii::DescriptorSetLayout& global_descriptor_set_layout,
+    const vk::raii::DescriptorSetLayout& frame_set_layout,
+    const vk::raii::DescriptorSetLayout& texture_set_layout,
     const pipeline_desc&                 desc,
     vk::Format                           swapchain_image_format,
     vk::Format                           depth_image_format,
@@ -135,10 +136,15 @@ vulkan_pipeline::vulkan_pipeline(
         .offset     = 0,
         .size       = sizeof(math::mat4)};
 
-    // pipeline layout.
+    // pipeline layout: two descriptor sets, organized by update frequency —
+    // set 0 = per-frame (camera ubo, per-window storage), set 1 = per-texture
+    // (combined image sampler, bound per draw).
+    std::array<vk::DescriptorSetLayout, 2> set_layouts = {
+        *frame_set_layout, *texture_set_layout};
+
     vk::PipelineLayoutCreateInfo pipeline_layout_info {
-        .setLayoutCount         = 1,
-        .pSetLayouts            = &*global_descriptor_set_layout,
+        .setLayoutCount         = static_cast<uint32_t>(set_layouts.size()),
+        .pSetLayouts            = set_layouts.data(),
         .pushConstantRangeCount = 1,
         .pPushConstantRanges    = &push_constant_range};
 

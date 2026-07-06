@@ -102,6 +102,41 @@ inline auto rotate_z(float angle_radians) -> mat4 {
     return m;
 }
 
+/// @brief inverts a rigid transform (rotation + translation only).
+///
+/// a camera's view matrix is the inverse of its world transform ("move the
+/// world opposite to the camera"). a general 4x4 inverse is ~60 lines of
+/// error-prone cofactor math — and unnecessary here: for a rigid transform
+/// M = T * R the inverse is simply Rᵀ composed with -Rᵀ·t, because a rotation
+/// matrix's transpose is its inverse.
+///
+/// precondition: the matrix must be rigid — orthonormal 3x3 rotation block,
+/// no scale or shear. feeding a scaled matrix in produces a wrong result
+/// silently, which is why this is named inverse_RIGID and not inverse.
+/// @param m the rigid transform to invert (e.g. a camera pose).
+/// @return the inverse transform (e.g. the view matrix).
+constexpr auto inverse_rigid(const mat4& m) -> mat4 {
+    mat4 r = mat4::identity();
+
+    // transpose the 3x3 rotation block. data is [col][row], so the transpose
+    // swaps column and row indices.
+    for (int c = 0; c < 3; ++c) {
+        for (int rw = 0; rw < 3; ++rw) {
+            r.data[c][rw] = m.data[rw][c];
+        }
+    }
+
+    // new translation = -Rᵀ · t, where t is m's translation column.
+    const float tx = m.data[3][0];
+    const float ty = m.data[3][1];
+    const float tz = m.data[3][2];
+    r.data[3][0] = -(r.data[0][0] * tx + r.data[1][0] * ty + r.data[2][0] * tz);
+    r.data[3][1] = -(r.data[0][1] * tx + r.data[1][1] * ty + r.data[2][1] * tz);
+    r.data[3][2] = -(r.data[0][2] * tx + r.data[1][2] * ty + r.data[2][2] * tz);
+
+    return r;
+}
+
 /// @brief creates a view matrix for a right-handed z-up coordinate system.
 /// @param eye the position of the camera.
 /// @param center the point the camera is looking at.
@@ -130,6 +165,46 @@ inline auto look_at(const vec3& eye, const vec3& center, const vec3& up)
     m.data[3][0] = -dot(s, eye);
     m.data[3][1] = -dot(f, eye);
     m.data[3][2] = -dot(u, eye);
+
+    return m;
+}
+
+/// @brief creates a camera POSE (camera-to-world transform) looking from eye
+/// at center — the inverse of look_at(), built directly.
+///
+/// look_at() returns a VIEW matrix (world-to-eye); an entity's transform
+/// component stores the opposite direction (entity-to-world). use this to
+/// pose a camera entity: the renderer then derives the view matrix via
+/// inverse_rigid(). building the pose directly (basis vectors as columns,
+/// eye as translation) is cheaper and clearer than inverting look_at().
+/// @param eye the position of the camera.
+/// @param center the point the camera is looking at.
+/// @param up the up vector (usually 0, 0, 1).
+inline auto look_at_transform(const vec3& eye, const vec3& center,
+                              const vec3& up) -> mat4 {
+    vec3 const f = normalize(center - eye);  // forward (y)
+    vec3 const s = normalize(cross(f, up));  // right (x)
+    vec3 const u = cross(s, f);              // up (z)
+
+    // columns are the camera's basis vectors expressed in world space,
+    // translation is the camera position — exactly the transpose+negation
+    // relationship to look_at()'s rows.
+    mat4 m       = mat4::identity();
+    m.data[0][0] = s.x;
+    m.data[0][1] = s.y;
+    m.data[0][2] = s.z;
+
+    m.data[1][0] = f.x;
+    m.data[1][1] = f.y;
+    m.data[1][2] = f.z;
+
+    m.data[2][0] = u.x;
+    m.data[2][1] = u.y;
+    m.data[2][2] = u.z;
+
+    m.data[3][0] = eye.x;
+    m.data[3][1] = eye.y;
+    m.data[3][2] = eye.z;
 
     return m;
 }
