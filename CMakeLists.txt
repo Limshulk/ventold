@@ -82,6 +82,19 @@ add_subdirectory(source/vent_engine vent_engine)
 
 add_subdirectory(source/vent_apps vent_apps)
 
+# --- build tests ---
+# unit/storm tests for the hand-rolled lock-free containers. built into the
+# vent_tests target (not part of VENT_ALL, so a normal build stays lean) and
+# registered with ctest. run with:
+#   cmake --build --preset <preset> --target vent_tests
+#   ctest --test-dir build/cmake-<preset> --output-on-failure
+
+option(VENT_BUILD_TESTS "build vent unit/storm tests" ON)
+if(VENT_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(source/tests vent_tests_build)
+endif()
+
 # --- build targets ---
 # three main targets for building:
 #   VENT_SDK  - sdk only (headers, modules, plugins, templates).

@@ -61,6 +61,7 @@ private:
         subscription_id id;        ///< unique subscription id.
         std::string     event;     ///< event name (copy, not to be changed).
         event_callback  callback;  ///< callback function when event publishes.
+        event_delivery  delivery;  ///< which thread / when the callback runs.
     };
 
     // --- member variables ---
@@ -100,7 +101,9 @@ public:
     // —————————————————————————————————————————————————————————————————————————
 
     [[nodiscard]]
-    auto subscribe(std::string_view event, event_callback callback)
+    auto subscribe(std::string_view event,
+                   event_callback   callback,
+                   event_delivery   delivery = event_delivery::parallel)
         -> subscription_id override;
 
     auto unsubscribe(subscription_id id) -> void override;

@@ -47,13 +47,44 @@ using subscription_id = u64;
 /// @brief invalid subscription id (returned on failure).
 constexpr subscription_id INVALID_SUBSCRIPTION = 0;
 
+/// @brief where and when a subscriber's callback runs when its event fires.
+/// chosen per subscription — the same event can wake different subscribers on
+/// different threads. this is the knob that makes events safe: a callback that
+/// touches main-thread-owned state subscribes with `main` instead of racing on
+/// a worker.
+enum class event_delivery : u8 {
+    /// on a job worker, possibly concurrently with other callbacks and in no
+    /// defined order (the default; the engine's historical behavior). lowest
+    /// latency to start; the callback must be thread-safe.
+    parallel = 0,
+    /// deferred onto the main thread and run at the next frame-start drain
+    /// (via job_affinity::main). the safe choice for callbacks that touch
+    /// main-thread-owned state (e.g. the world). serialized with other main
+    /// work; never concurrent.
+    main = 1,
+    /// synchronously on the publisher's thread, before publish() returns. no
+    /// job hop. use only for cheap, non-blocking callbacks; the callback must
+    /// not assume any particular thread.
+    immediate = 2,
+};
+
 /// @brief client-facing event bus interface.
 /// provides publish/subscribe functionality for decoupled communication.
 ///
 /// concurrency contract (read before subscribing):
-/// - callbacks run on job-system worker threads, NOT the publisher's thread.
-/// - callbacks for one event may run concurrently with each other and in any
-///   order; two sequential publish() calls provide no ordering guarantee.
+/// - each subscription picks a delivery policy (see event_delivery). the
+///   DEFAULT is `parallel`: the callback runs on a job worker, NOT the
+///   publisher's thread. `main` defers it to the main thread's frame-start
+///   drain; `immediate` runs it synchronously on the publisher's thread.
+/// - `parallel` callbacks for one event may run concurrently with each other
+///   and in any order; two sequential publish() calls provide no ordering
+///   guarantee. `main` callbacks are serialized on the main thread.
+/// - publish_wait() blocks for `parallel` and `immediate` subscribers, but does
+///   NOT block for `main` subscribers: awaiting a main-thread-deferred callback
+///   from another thread would deadlock against the frame drain (and re-create
+///   the very platform/worker deadlock below). a `main` subscriber therefore
+///   always runs at the next frame boundary, whether published with publish()
+///   or publish_wait().
 /// - unsubscribe() removes the subscription but does NOT wait for a callback
 ///   that is already in flight — a callback snapshotted microseconds earlier can
 ///   still be running after unsubscribe() returns. do not free state a callback
@@ -80,10 +111,14 @@ public:
     /// @param event event name to subscribe to (e.g.,
     /// "system.ready.vent.renderer").
     /// @param callback function to call when event fires.
+    /// @param delivery which thread / when the callback runs (default:
+    /// parallel, i.e. on a job worker). see event_delivery.
     /// @return subscription id for later unsubscribe, or INVALID_SUBSCRIPTION
     /// on failure.
     [[nodiscard]]
-    virtual auto subscribe(std::string_view event, event_callback callback)
+    virtual auto subscribe(std::string_view event,
+                           event_callback   callback,
+                           event_delivery delivery = event_delivery::parallel)
         -> subscription_id = 0;
 
     /// @brief unsubscribe from an event. the callback will no longer be invoked

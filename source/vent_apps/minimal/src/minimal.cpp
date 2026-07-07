@@ -8,7 +8,23 @@
 
 #include <_vent/_vent.hpp>
 
+#include <_vent/event_bus/event_coroutine.hpp>
 #include <_vent/math/math.hpp>
+
+namespace {
+
+/// @brief demonstrates awaiting an event from a coroutine. runs eagerly, logs,
+/// then suspends at the co_await until "demo.milestone" is published — resuming
+/// on the main thread (the default delivery) at the frame-start drain. this is
+/// the "run, then sync on a fired event" pattern, without blocking a thread.
+auto await_demo_event() -> vent::co_task {
+    vent::log()->info("client", "coroutine: awaiting 'demo.milestone'...");
+    co_await vent::await_event("demo.milestone");
+    vent::log()->info("client",
+                      "coroutine: 'demo.milestone' fired — resumed on main.");
+}
+
+}  // namespace
 
 class minimal_client : public vent::client_base {
 public:
@@ -94,6 +110,10 @@ public:
         // set as default camera so all windows use it.
         vent::world()->set_active_camera(_camera_entity);
 
+        // launch a coroutine that awaits an event (fired at frame 60 below).
+        // it runs now, logs, and suspends until "demo.milestone" is published.
+        await_demo_event();
+
         _frame_count = 0;
         _elapsed     = 0.0;
         return true;
@@ -119,6 +139,11 @@ public:
                 vent::log()->error("client",
                                    "failed to create delayed window.");
             }
+
+            // fire the event the demo coroutine is awaiting. it was subscribed
+            // with main delivery, so the coroutine resumes at the next frame's
+            // main-thread drain — not here on this publish.
+            vent::event()->publish("demo.milestone");
         }
 
         // update entity transform (spinning the model around Z).

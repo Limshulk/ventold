@@ -47,7 +47,8 @@ auto event_bus_system::shutdown() -> void {
 }
 
 auto event_bus_system::subscribe(std::string_view event,
-                                 event_callback   callback) -> subscription_id {
+                                 event_callback   callback,
+                                 event_delivery   delivery) -> subscription_id {
     if (!_initialized)
         return INVALID_SUBSCRIPTION;
 
@@ -62,7 +63,8 @@ auto event_bus_system::subscribe(std::string_view event,
     _subscriptions[event_str].push_back(
         subscription {.id       = id,
                       .event    = event_str,
-                      .callback = std::move(callback)});
+                      .callback = std::move(callback),
+                      .delivery = delivery});
 
     _subscription_index[id] = event_str;
 
@@ -114,8 +116,14 @@ auto event_bus_system::publish_copied(std::string_view      event,
 auto event_bus_system::dispatch(std::string_view      event,
                                 void*                 data,
                                 std::shared_ptr<void> lifetime_holder) -> void {
-    std::vector<event_callback> callbacks;
-    std::string                 event_str(event);
+    // snapshot (callback, delivery) pairs so we can route each subscriber to its
+    // chosen thread without holding the lock during dispatch.
+    struct pending {
+        event_callback callback;
+        event_delivery delivery;
+    };
+    std::vector<pending> callbacks;
+    std::string          event_str(event);
 
     log()->trace("event_bus", "dispatching event '{}' (payload: {})", event_str, data);
 
@@ -132,7 +140,7 @@ auto event_bus_system::dispatch(std::string_view      event,
         // snapshot the callbacks. unsubscribe() hard-erases entries, so every
         // subscription still present here is live — no validity filtering.
         for (const auto& sub : it->second) {
-            callbacks.push_back(sub.callback);
+            callbacks.push_back({sub.callback, sub.delivery});
         }
     }
 
@@ -140,21 +148,44 @@ auto event_bus_system::dispatch(std::string_view      event,
         return;
     }
 
-    // fire all callbacks in parallel via job system (if available).
-    // lifetime_holder is captured to keep the data alive until all callbacks
-    // complete.
+    // route each callback per its delivery policy. lifetime_holder is captured
+    // into every deferred lambda so the data outlives all callbacks.
     log()->trace("event_bus", "dispatching event '{}' to {} subscribers.", event_str, callbacks.size());
-    for (const auto& callback : callbacks) {
-        job()->fire([callback, event_str, data, lifetime_holder]() {
-            callback(event_str, data);
-        });
+    for (const auto& p : callbacks) {
+        switch (p.delivery) {
+            case event_delivery::immediate:
+                // synchronous, on the publisher's thread, before we return.
+                p.callback(event_str, data);
+                break;
+            case event_delivery::main:
+                // deferred onto the main thread's frame-start drain.
+                job()->fire(
+                    [cb = p.callback, event_str, data, lifetime_holder]() {
+                        cb(event_str, data);
+                    },
+                    job_priority::normal,
+                    job_affinity::main);
+                break;
+            case event_delivery::parallel:
+            default:
+                // on a job worker, possibly concurrently (the default).
+                job()->fire(
+                    [cb = p.callback, event_str, data, lifetime_holder]() {
+                        cb(event_str, data);
+                    });
+                break;
+        }
     }
 }
 
 auto event_bus_system::dispatch_wait(std::string_view event, void* data)
     -> void {
-    std::vector<event_callback> callbacks;
-    std::string                 event_str(event);
+    struct pending {
+        event_callback callback;
+        event_delivery delivery;
+    };
+    std::vector<pending> callbacks;
+    std::string          event_str(event);
 
     log()->trace("event_bus", "dispatch_wait event '{}' (payload: {})", event_str, data);
 
@@ -171,7 +202,7 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
         // snapshot the callbacks (see dispatch(): all present subscriptions are
         // live because unsubscribe() hard-erases).
         for (const auto& sub : it->second) {
-            callbacks.push_back(sub.callback);
+            callbacks.push_back({sub.callback, sub.delivery});
         }
     }
 
@@ -179,20 +210,40 @@ auto event_bus_system::dispatch_wait(std::string_view event, void* data)
         return;
     }
 
-    // fire all callbacks and wait for them to complete.
-    // parallel dispatch via job system with wait.
     log()->trace("event_bus", "dispatch_wait: firing {} callbacks for event '{}'", callbacks.size(), event_str);
     std::vector<task> tasks;
     tasks.reserve(callbacks.size());
 
-    for (const auto& callback : callbacks) {
-        tasks.push_back(job()->submit([callback, event_str, data]() {
-            callback(event_str, data);
-        }));
+    for (const auto& p : callbacks) {
+        switch (p.delivery) {
+            case event_delivery::immediate:
+                // runs synchronously here — trivially "awaited".
+                p.callback(event_str, data);
+                break;
+            case event_delivery::main:
+                // main-delivered callbacks are NOT awaited: blocking on the frame
+                // drain from this (non-main) thread would deadlock (see the
+                // contract in ic_event_bus.hpp). fire-and-forget onto main; it
+                // runs at the next frame boundary. the caller must ensure `data`
+                // outlives the frame for such subscribers.
+                job()->fire([cb = p.callback, event_str, data]() {
+                                cb(event_str, data);
+                            },
+                            job_priority::normal,
+                            job_affinity::main);
+                break;
+            case event_delivery::parallel:
+            default:
+                tasks.push_back(
+                    job()->submit([cb = p.callback, event_str, data]() {
+                        cb(event_str, data);
+                    }));
+                break;
+        }
     }
 
     log()->trace("event_bus", "dispatch_wait: waiting for {} tasks to complete...", tasks.size());
-    // wait for all tasks to complete.
+    // wait only for the parallel tasks (immediate already ran, main is deferred).
     for (auto& t : tasks) {
         t.wait();
     }

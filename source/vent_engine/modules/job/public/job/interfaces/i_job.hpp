@@ -30,9 +30,12 @@ public:
     /// @param state task state to use for tracking.
     /// @param job_func function to execute.
     /// @param priority job priority.
-    virtual auto submit_with_state(task_state* state,
-                                   job_fn      job_func,
-                                   job_priority priority) -> void = 0;
+    /// @param affinity which thread may run the job (default: any worker).
+    virtual auto submit_with_state(task_state*  state,
+                                   job_fn       job_func,
+                                   job_priority priority,
+                                   job_affinity affinity = job_affinity::any)
+        -> void = 0;
 };
 
 }  // namespace vent

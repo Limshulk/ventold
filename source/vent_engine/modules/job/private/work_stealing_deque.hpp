@@ -42,17 +42,36 @@ private:
     // note: we intend `_top` and `_bottom` to be on separate cache lines to
     // reduce false sharing.
 
-    /// @brief the actual circular storage container.
-    std::unique_ptr<circular_array<T>>              _array;
-    std::vector<std::unique_ptr<circular_array<T>>> _retired_arrays;
+    /// @brief the live circular storage, published as a raw pointer so thieves
+    ///        can read it atomically. the owner swaps this on grow with a release
+    ///        store; thieves acquire-load it in steal(). storing a raw pointer
+    ///        (not the unique_ptr) is what makes the array switch a single atomic
+    ///        publish rather than a racy multi-step reassignment.
+    alignas(CACHE_LINE) std::atomic<circular_array<T>*> _array;
+
+    /// @brief owns every array the deque has ever allocated (current + outgrown).
+    ///        outgrown arrays are never freed while the deque lives, because a
+    ///        thief may still hold a raw pointer into one it acquire-loaded just
+    ///        before a grow. growth is geometric (doubling), so the total memory
+    ///        retained is bounded to ~2x the final array — cheap, and it removes
+    ///        any need for hazard pointers / epoch reclamation at this scale.
+    ///        only the owner thread touches this vector (during push-grow), so it
+    ///        needs no synchronization of its own.
+    std::vector<std::unique_ptr<circular_array<T>>> _arrays;
 
 #ifdef VENT_DEBUG
     std::atomic<std::thread::id> _owner_thread_id {std::thread::id()};
 #endif
 
 public:
-    explicit work_stealing_deque(u32 capacity = 256)
-        : _array(std::make_unique<circular_array<T>>(capacity)) {}
+    explicit work_stealing_deque(u32 capacity = 256) {
+        // allocate the initial array, keep ownership in _arrays, and publish its
+        // raw pointer. relaxed is fine: no thieves can observe us during
+        // construction.
+        auto initial = std::make_unique<circular_array<T>>(capacity);
+        _array.store(initial.get(), std::memory_order_relaxed);
+        _arrays.push_back(std::move(initial));
+    }
 
     ~work_stealing_deque() = default;
 
@@ -94,18 +113,22 @@ public:
         u64 b = _bottom.load(std::memory_order_relaxed);
         u64 t = _top.load(std::memory_order_relaxed);
 
-        circular_array<T>* a = _array.get();
+        // the owner is the only writer of _array, so a relaxed load always sees
+        // our own latest publish.
+        circular_array<T>* a = _array.load(std::memory_order_relaxed);
 
         // check if full.
         if (b - t >= a->capacity()) {
-            // need to grow!
-            auto new_array = a->grow(t, b);
-            _retired_arrays.push_back(std::move(_array));
-            _array = std::move(new_array);
-            if (_retired_arrays.size() > 8) {
-                _retired_arrays.erase(_retired_arrays.begin());
-            }
-            a = _array.get();
+            // grow: allocate a bigger array and copy the live [t, b) range into
+            // it. the old array stays alive in _arrays (a thief may still hold a
+            // pointer into it), and we publish the new one with a single release
+            // store — there is never a moment where _array is null or half-set,
+            // so a concurrent steal() always reads a fully-valid array.
+            auto               new_array = a->grow(t, b);
+            circular_array<T>* new_raw   = new_array.get();
+            _arrays.push_back(std::move(new_array));
+            _array.store(new_raw, std::memory_order_release);
+            a = new_raw;
         }
         // place item in array.
         a->put(b, std::move(item));
@@ -145,7 +168,8 @@ public:
         }
 
         u64                b = bottom_val - 1;
-        circular_array<T>* a = _array.get();
+        // owner-only writer of _array: relaxed load sees our own latest publish.
+        circular_array<T>* a = _array.load(std::memory_order_relaxed);
         _bottom.store(b, std::memory_order_relaxed);
 
         std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -188,7 +212,10 @@ public:
         u64 b = _bottom.load(std::memory_order_acquire);
 
         if (t < b) [[likely]] {
-            circular_array<T>* a    = _array.get();
+            // acquire-load pairs with the release store in push()'s grow: it
+            // guarantees we read a fully-constructed array (never a stale or null
+            // pointer) and that the copied elements are visible.
+            circular_array<T>* a    = _array.load(std::memory_order_acquire);
             T                  item = a->get(t);
 
             if (!_top.compare_exchange_strong(t,

@@ -68,6 +68,19 @@ enum class job_priority : u8 {
     high   = 2,  ///< urgent.
 };
 
+/// @brief which thread a job is allowed to run on. the sibling of job_priority:
+/// priority says *when* a job runs, affinity says *where*.
+///
+/// most jobs are `any` — the whole point of the job system is to spread them
+/// across every core. use `main` only for work that must touch state owned by
+/// the engine main thread (the world, gpu surface lifecycle, anything a frame
+/// phase reads): such a job is queued to a main-thread inbox and executed at a
+/// known safe point (frame start), never stolen by a worker.
+enum class job_affinity : u8 {
+    any  = 0,  ///< any worker thread (default). maximal parallelism.
+    main = 1,  ///< the engine main thread, drained once per frame at frame start.
+};
+
 /// @brief worker state for real-time monitoring.
 enum class worker_state : u8 {
     idle,     ///< worker is sleeping/waiting for work.
@@ -210,8 +223,11 @@ public:
     /// @brief submit a fire-and-forget job to be executed asynchronously.
     /// @param job_func function to execute (pointer or lambda). no return value.
     /// @param priority priority level for job scheduling (default: normal).
+    /// @param affinity which thread may run it (default: any worker). use
+    /// job_affinity::main to defer work onto the main thread's frame-start drain.
     virtual auto fire(job_fn       job_func,
-                      job_priority priority = job_priority::normal) -> void = 0;
+                      job_priority priority = job_priority::normal,
+                      job_affinity affinity = job_affinity::any) -> void = 0;
 
     /// @brief submit multiple fire-and-forget jobs at once. slightly more
     /// efficient than calling fire() individually.
@@ -239,7 +255,9 @@ public:
     ///   auto t = job()->submit([] { return load_texture("tex.png"); });
     ///   auto tex = t.get<texture>();  // blocks and returns the texture.
     template <typename F>
-    auto submit(F&& func, job_priority priority = job_priority::normal) -> task;
+    auto submit(F&&          func,
+                job_priority priority = job_priority::normal,
+                job_affinity affinity = job_affinity::any) -> task;
 
     // --- synchronization ---
     // —————————————————————————————————————————————————————————————————————————
@@ -262,6 +280,14 @@ public:
     /// blocks until every queued job has finished executing.
     /// note: this does NOT free tracked tasks - their destructors handle that.
     virtual auto drain() -> void = 0;
+
+    /// @brief execute the jobs pinned (via job_affinity) to the CALLING thread,
+    /// then return. this is how affinity work actually runs: a pinned job sits in
+    /// its target thread's inbox until that thread calls this.
+    /// @note the engine main loop calls this once per frame (frame start), so
+    /// application code virtually never needs it. on a thread that owns no inbox
+    /// it is a no-op.
+    virtual auto run_pinned_jobs() -> void = 0;
 
     // --- parallelization ---
     // —————————————————————————————————————————————————————————————————————————
@@ -297,7 +323,8 @@ protected:
     virtual auto submit_internal(std::function<void(void*)> wrapper,
                                  usize                      result_size,
                                  void (*result_deleter)(void*),
-                                 job_priority priority) -> task = 0;
+                                 job_priority               priority,
+                                 job_affinity               affinity) -> task = 0;
 
     /// @brief internal: create a task from opaque state. subclass factory.
     /// @param state opaque state pointer.
@@ -309,7 +336,8 @@ protected:
 // ——————————————————————————————————————————————————————————————————————————————
 
 template <typename F>
-auto ic_job::submit(F&& func, job_priority priority) -> task {
+auto ic_job::submit(F&& func, job_priority priority, job_affinity affinity)
+    -> task {
     using R = std::invoke_result_t<F>;
 
     // create wrapper that calls func and stores result to provided pointer.
@@ -336,7 +364,8 @@ auto ic_job::submit(F&& func, job_priority priority) -> task {
     }
 
     // submit via internal method.
-    return submit_internal(std::move(wrapper), result_size, deleter, priority);
+    return submit_internal(
+        std::move(wrapper), result_size, deleter, priority, affinity);
 }
 
 }  // namespace vent

@@ -55,8 +55,11 @@ public:
     }
 
     /// @brief execute a job immediately inline (no async).
-    auto fire(job_fn func, job_priority /*priority*/ = job_priority::normal)
-        -> void override {
+    /// affinity is irrelevant here: with no worker threads, "inline on the
+    /// caller" is the only place a job can run.
+    auto fire(job_fn func,
+              job_priority /*priority*/ = job_priority::normal,
+              job_affinity /*affinity*/ = job_affinity::any) -> void override {
         if (func) {
             func();
         }
@@ -81,6 +84,12 @@ public:
         // nothing to drain - all jobs execute inline.
     }
 
+    /// @brief run jobs pinned to the calling thread. no-op: the fallback has no
+    /// inbox because every job already ran inline at submit time.
+    auto run_pinned_jobs() -> void override {
+        // nothing to run - all jobs execute inline.
+    }
+
     /// @brief execute parallel_for as a sequential loop.
     auto parallel_for(u64         begin,
                       u64         end,
@@ -99,7 +108,8 @@ protected:
     auto submit_internal(std::function<void(void*)> wrapper,
                          usize                      result_size,
                          void (*result_deleter)(void*),
-                         job_priority /*priority*/) -> task override {
+                         job_priority /*priority*/,
+                         job_affinity /*affinity*/) -> task override {
         // allocate task state.
         auto* state = new task_state();
         state->ref_count.store(2,

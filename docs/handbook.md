@@ -251,7 +251,9 @@ private headers, other modules' `public/` headers, and `_vent/`. nothing outside
 5. **role caching:** the registry collects all `ir_runnable`s and the single `ir_client`,
    hands them to the main loop, applies the client's window-close policy.
 6. **main loop** (`modules/core/src/main_loop.cpp`): runs until the client's `is_running()`
-   is false, stop is requested, or the last window closes. per frame: integrate pending
+   is false, stop is requested, or the last window closes. per frame: **drain main-thread-
+   pinned jobs** (`job()->run_pinned_jobs()` — runs `job_affinity::main` work and
+   `event_delivery::main` callbacks at a safe point, before any phase) → integrate pending
    runnable changes → **stable-sort runnables by `run_phase()`** → compute `delta_time`
    (clamped to 100 ms so a debugger pause doesn't teleport physics) → call every runnable's
    `on_update(dt)` in phase order.
@@ -339,10 +341,14 @@ the chassis. contains:
   documented workaround for a toolchain teardown issue. keep it.
 - **executable_path** (`public/core/utils/executable_path.hpp`): `get_executable_directory()`
   — the anchor for all deployment-relative paths.
-- **containers** (`public/core/containers/`): `mpmc_queue` (vyukov bounded),
-  `work_stealing_deque` (chase-lev), `mpsc_queue` — hand-rolled lock-free structures used by
-  job/log systems. ⚠ they have **no tests yet**; treat any modification as high-risk and add
-  a storm test with it.
+- **containers** (`public/core/containers/`): `mpmc_queue` (vyukov bounded), `mpsc_queue`,
+  `circular_array` (single-threaded backing store); plus `work_stealing_deque` (chase-lev) in
+  `modules/job/private/`. hand-rolled lock-free structures used by job/log systems, covered by
+  storm tests in `source/tests/` (target `vent_tests`, run via ctest). ⚠ treat any modification
+  as high-risk; extend the storm test with it. the deque publishes its backing array
+  **atomically** (release store on grow, acquire load in `steal`) and **retains outgrown arrays
+  for its lifetime** (geometric growth ⇒ bounded to ~2× the final size), so a thief can never
+  observe a stale or half-swapped array pointer.
 - **fallbacks** (`private/fallback/`): synchronous log/job stand-ins used before bootstrap
   completes (and, for the log, throughout debug builds).
 
@@ -362,16 +368,35 @@ debugging "logging behaves differently in release".
 string-keyed publish/subscribe. **the documented contract** (in `ic_event_bus.hpp`) is
 load-bearing — assume nothing beyond it:
 
-- callbacks run **on job worker threads**, in **no defined order**, possibly **concurrently**.
-- `publish` is fire-and-forget; `publish_wait` blocks until all callbacks completed.
+- each subscription picks a **delivery policy** (`event_delivery`, chosen at `subscribe`):
+  - `parallel` (default) — on a job worker, **no defined order**, possibly **concurrently**.
+    the callback must be thread-safe. this is the engine's historical behavior.
+  - `main` — deferred onto the main thread and run at the **frame-start drain**
+    (`job_affinity::main` → `run_pinned_jobs`). serialized, never concurrent; the safe
+    choice for callbacks that touch main-thread-owned state (the world, gpu surfaces).
+  - `immediate` — synchronously on the publisher's thread, before `publish` returns.
+- `publish` is fire-and-forget; `publish_wait` blocks until `parallel`/`immediate` callbacks
+  complete but **does not block on `main` subscribers** (awaiting the frame drain from another
+  thread would deadlock) — a `main` subscriber always runs at the next frame boundary.
 - `unsubscribe` does **not** wait for in-flight callbacks.
-- deadlock rule: subscribers of `window.created`/`window.destroyed` must not call window
-  methods that marshal to the platform thread (the publisher may be blocking on PLAT).
+- deadlock rule: a `parallel` subscriber of `window.created`/`window.destroyed` must not call
+  window methods that marshal to the platform thread (the publisher may be blocking on PLAT).
+  choosing `main` delivery sidesteps this (the callback runs on the main thread, deferred).
 
 known events: `system.ready.<name>`, `plugin.initialized.<name>`, `plugin.shutdown.<name>`,
-`window.created`, `window.destroyed`. note: since phase 1 the renderer subscribes to **none**
-of them (it polls-reconciles instead) — prefer that pattern where a frame-start convergence
-point exists.
+`window.created`, `window.destroyed`. note: the renderer subscribes to **none** of them (it
+polls-reconciles instead — see `reconcile_surfaces`, §8). reconcile is the right tool for
+per-frame derived state with a safe convergence point; events are for sparse/awaitable signals.
+
+**awaiting events from coroutines** (`_vent/event_bus/event_coroutine.hpp`, built on
+`_vent/core/co_task.hpp`): a `co_task` (a detached, fire-and-forget coroutine) can
+`co_await await_event("name")` to **suspend until the event fires, then resume** — by default
+on the main thread, at the frame-start drain (resume delivery is an `event_delivery`). this is
+events as a *synchronization* primitive ("run, then sync on a fired signal") rather than a
+pre-registered callback, and it blocks no thread while waiting. it is layered entirely on
+`subscribe` + the delivery policies: the awaiter registers a one-shot subscription whose
+callback resumes the coroutine on the chosen thread. the minimal testbed demonstrates the full
+path (a coroutine suspended on a worker resumes on MAIN when the event fires).
 
 this module may see huge refactoring in the future in order to enrichen the contract. however,
 the only assumptions ever done are those written in the contract. never assume any different
@@ -384,16 +409,25 @@ the module, then (and only then) redefine the contract.
 the parallelism engine: one worker thread per hardware thread (`W:00`…), global queues plus
 per-worker work-stealing deques. api (`ic_job.hpp`):
 
-- `fire(fn)` — fire-and-forget.
-- `submit(fn) -> task` — returns a `task`; `task.get<T>()` blocks (the waiter helps execute
-  queued work while waiting).
+- `fire(fn, priority = normal, affinity = any)` — fire-and-forget.
+- `submit(fn, priority = normal, affinity = any) -> task` — returns a `task`; `task.get<T>()`
+  blocks (the waiter helps execute queued work while waiting).
 - `parallel_for(begin, end, fn)` — fork/join helper.
+- `run_pinned_jobs()` — execute jobs pinned to the **calling** thread, then return.
+
+**thread affinity** (`job_affinity`, the sibling of `job_priority`): `any` (default) runs on
+any worker; `main` routes the job into a **main-thread inbox** that only the main thread
+drains, via `run_pinned_jobs()`, which the main loop calls once per frame at frame start.
+workers never steal pinned jobs, so main-affinity work is guaranteed to run on the main
+thread at a known, deterministic point. this is the substrate for `event_delivery::main`
+(9.3) and, later, for safely mutating main-owned state from a worker-originated request.
 
 ⚠ rules that keep it deadlock-free: a job must never block on another job unless the wait
 either drains queues or uses an atomic wait the completer notifies. work submitted from a
 worker goes to that worker's **local deque**, which external waiters cannot help with —
-don't build cross-thread rendezvous on that. event-bus callbacks are jobs; everything in
-section 9.3's contract follows from that.
+don't build cross-thread rendezvous on that. **never block-wait on a `main`-pinned job from a
+non-main thread** — only the main-loop drain runs it, so the waiter would spin forever.
+event-bus callbacks are jobs; everything in section 9.3's contract follows from that.
 
 <a name="95-platform"></a>
 ### 9.5 platform (`modules/platform/`)
@@ -527,8 +561,8 @@ the seven working rules (short form — violations are review-blockers):
 6. **handles across boundaries.** pointers don't cross ownership domains (engine↔client,
    thread↔thread, frame↔frame); generation-checked handles do. (being rolled out: assets and
    windows still use raw pointers — treat those as compare-only.)
-7. **concurrency ships with its test.** new lock-free/locking code lands with a storm test
-   (the existing containers still owe theirs — see limitations).
+7. **concurrency ships with its test.** new lock-free/locking code lands with a storm test.
+   the containers have theirs in `source/tests/` (target `vent_tests`, tsan-capable on linux).
 
 ---
 
@@ -568,6 +602,9 @@ the seven working rules (short form — violations are review-blockers):
 | **add a new component type** | declare in `_vent/world/ic_world.hpp` (+ getter/setter on `ic_world`); storage in `modules/world/private/world_system.hpp` + `src/world_system.cpp` (copy the camera_component pattern incl. `destroy_entity` scrub); if renderable, consume it in `renderer.cpp::extract_frame`. |
 | **add a new engine system** | new module dir under `modules/<name>/` (`public/<name>/`, `private/`, `src/`, `CMakeLists.txt` with `vent_create_module`); interface `ic_<name>` in `_vent/<name>/`; class `<name>_system : system_base, i_<name>[, ir_dependencies, ir_runnable]`; `VENT_REGISTER_SYSTEM(...)` at the bottom of the .cpp; add an accessor in `_vent/accessors.hpp` + `modules/core/src/_vent/accessors.cpp`; list the module in the app's `vent_create_client(MODULES …)`. |
 | **run something every frame** | implement `ir_runnable` on a system; pick a phase via `run_phase()` (`_vent/core/ir_runnable.hpp`). new phase constants go in that header. |
+| **run work on the main thread from another thread** | `job()->fire(fn, priority, job_affinity::main)` — runs at the next frame-start drain. never block-wait on it from off-main. |
+| **make an event callback run on the main thread** | `event()->subscribe(name, cb, event_delivery::main)` (or `::immediate` to run on the publisher's thread). default stays `::parallel`. |
+| **await an event from a coroutine** | return `vent::co_task` (`_vent/core/co_task.hpp`), then `co_await vent::await_event("name")` (`_vent/event_bus/event_coroutine.hpp`); resumes on main by default. see `minimal.cpp` for the reference use. |
 | **change frame order / add a phase** | `_vent/core/ir_runnable.hpp` (constants) — the sort in `main_loop.cpp::sync_runnables` needs no change. |
 | **change what gets drawn / how the scene is walked** | `modules/renderer/src/renderer.cpp::extract_frame`. |
 | **change per-window rendering (ubo content, submission)** | `renderer.cpp::render_window`; ubo struct in `_vent/renderer/uniform_buffer.hpp` (then also: swapchain ring size math, shader `UniformBuffer`, and `update_frame_uniforms`). |
@@ -581,7 +618,8 @@ the seven working rules (short form — violations are review-blockers):
 | **create windows / react to window close** | client: `platform()->create_window(desc)`; policy via `close_policy()` override. engine-side surface lifecycle: `renderer.cpp::reconcile_surfaces` (do NOT add window event subscriptions to the renderer). |
 | **add a new client app** | new dir under `vent_apps/<name>/` with `CMakeLists.txt` calling `vent_create_client`; subclass `client_base`; `VENT_REGISTER_CLIENT(my_client);` add subdirectory in `vent_apps/CMakeLists.txt`. |
 | **change logging behavior** | `modules/log/` (async path) + `modules/core/private/fallback/fallback_log.hpp` (debug path) — remember both exist. |
-| **touch lock-free containers** | `modules/core/public/core/containers/` — write the storm test first (rule 7). |
+| **touch lock-free containers** | `modules/core/public/core/containers/` (+ `modules/job/private/work_stealing_deque.hpp`) — extend the storm test in `source/tests/` first (rule 7). |
+| **add/run container tests** | `source/tests/` (`test_*.cpp` + `vent_test.hpp` harness); build `--target vent_tests`, run via ctest or the exe in `build/cmake-<preset>/tests/`. tsan: configure with `-DVENT_TESTS_TSAN=ON` on linux. |
 | **update the rules** | `.agents/AGENTS.md` — and this handbook if architecture facts changed. |
 
 ---
@@ -608,9 +646,11 @@ known, accepted, and scheduled — do not "fix" these casually; they interlock w
    `pipeline_desc`'s entry points are effectively fixed. materials are a later phase.
 6. **sort key is the entity id.** real key packing (layer|pipeline|texture|depth) is planned;
    the bind-elision that will exploit it already exists.
-7. **no tests, no ci.** three hand-rolled lock-free containers with zero tests is the single
-   scariest fact in the codebase; a catch2/doctest target + tsan on the linux preset is the
-   standing highest-value task.
+7. **tests: containers covered, rest bare; no ci yet.** `source/tests/` (target `vent_tests`,
+   registered with ctest) storm-tests all four lock-free/lock-free-backing containers with a
+   tiny self-contained harness (`vent_test.hpp`); `-DVENT_TESTS_TSAN=ON` adds ThreadSanitizer on
+   the linux preset. still missing: coverage beyond the containers, and a ci runner. wiring
+   `vent_tests` into ci (with the tsan build) is the standing highest-value task.
 8. **standalone sdk gap:** `vent-config.cmake.in`'s `vent_create_client` (for external sdk
    users) does not yet ship `engine_assets/`; the in-workspace build does.
 9. **debug builds bypass the async logger** (synchronous fallback instead) — log timing

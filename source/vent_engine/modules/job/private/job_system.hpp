@@ -75,7 +75,8 @@ private:
     struct alignas(CACHE_LINE) job_t {
         job_fn       func;      ///< 0x00-0x1F (32b): function to execute.
         job_priority priority;  ///< 0x20 (1b): execution priority.
-                                ///< 0x21-0x27 (7b): padding.
+        job_affinity affinity;  ///< 0x21 (1b): which thread may run this job.
+                                ///< 0x22-0x27 (6b): padding.
         u64  id;                ///< 0x28-0x2F (8b): unique job identifier.
         u64  batch_id;          ///< 0x30-0x37 (8b): batch id (0 = single job).
         bool tracked;           ///< 0x38: true = has associated task object.
@@ -128,6 +129,17 @@ private:
     mpmc_queue<job_t*> _global_high_queue {GLOBAL_QUEUE_CAPACITY};
     mpmc_queue<job_t*> _global_normal_queue {GLOBAL_QUEUE_CAPACITY};
     mpmc_queue<job_t*> _global_low_queue {GLOBAL_QUEUE_CAPACITY};
+
+    // main-thread affinity inbox. jobs pinned with job_affinity::main land here
+    // and are executed only by the main thread, when it calls run_pinned_jobs()
+    // (once per frame). workers never touch this queue, so pinned work is never
+    // stolen off the main thread.
+    mpmc_queue<job_t*> _main_affinity_queue {GLOBAL_QUEUE_CAPACITY};
+
+    // id of the engine main thread. captured during initialize(), which runs on
+    // the main thread (job is a bootstrap system, initialized there). used to
+    // decide who may drain the main inbox and to route inline fallbacks safely.
+    std::thread::id _main_thread_id {};
 
     // sleep / wake management for idle workers.
     mutable std::mutex      _sleep_mutex;
@@ -205,8 +217,9 @@ public:
     // --- ic_job ---
     // —————————————————————————————————————————————————————————————————————————
 
-    auto fire(job_fn job_func, job_priority priority = job_priority::normal)
-        -> void override;
+    auto fire(job_fn       job_func,
+              job_priority priority = job_priority::normal,
+              job_affinity affinity = job_affinity::any) -> void override;
     auto fire_batch(const job_fn* job_funcs,
                     u64           count,
                     job_priority  priority = job_priority::normal)
@@ -214,9 +227,13 @@ public:
 
     auto submit_with_state(task_state*  state,
                            job_fn       job_func,
-                           job_priority priority) -> void override;
+                           job_priority priority,
+                           job_affinity affinity = job_affinity::any)
+        -> void override;
 
     auto drain() -> void override;
+
+    auto run_pinned_jobs() -> void override;
 
     auto wait_for_state(task_state* state) -> void override;
     auto release_state(task_state* state) -> void override;
@@ -233,7 +250,8 @@ protected:
     auto submit_internal(std::function<void(void*)> wrapper,
                          usize                      result_size,
                          void (*result_deleter)(void*),
-                         job_priority priority) -> task override;
+                         job_priority               priority,
+                         job_affinity               affinity) -> task override;
 
 private:
     // --- lifecycle ---

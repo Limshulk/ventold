@@ -53,6 +53,11 @@ auto job_system::initialize() -> bool {
     }
     u64 worker_count = static_cast<u64>(required_worker_count);
 
+    // capture the main thread id. job is a bootstrap system, so initialize()
+    // runs on the main thread — its id is exactly the thread that will later
+    // drain the affinity inbox via run_pinned_jobs().
+    _main_thread_id = std::this_thread::get_id();
+
     log()->trace(
         "job_system", "initializing job system with {} workers.", worker_count);
 
@@ -110,6 +115,9 @@ auto job_system::shutdown() -> void {
     while (auto j = _global_low_queue.try_pop()) {
         free_job(*j);
     }
+    while (auto j = _main_affinity_queue.try_pop()) {
+        free_job(*j);
+    }
 
     {
         std::lock_guard lock(_completion_mutex);
@@ -127,13 +135,16 @@ auto job_system::shutdown() -> void {
     log()->trace("job_system", "job_system::shutdown() complete");
 }
 
-auto job_system::fire(job_fn job_func, job_priority priority) -> void {
+auto job_system::fire(job_fn       job_func,
+                      job_priority priority,
+                      job_affinity affinity) -> void {
     if (!_initialized || !job_func)
         return;
 
     job_t* j          = allocate_job();
     j->func           = std::move(job_func);
     j->priority       = priority;
+    j->affinity       = affinity;
     j->id             = _next_job_id.fetch_add(1, std::memory_order_relaxed);
     j->batch_id       = 0;
     j->tracked        = false;
@@ -160,7 +171,8 @@ auto job_system::fire_batch(const job_fn* jobs,
 
 auto job_system::submit_with_state(task_state*  state,
                                    job_fn       job_func,
-                                   job_priority priority) -> void {
+                                   job_priority priority,
+                                   job_affinity affinity) -> void {
     if (!_initialized || !state || !job_func) {
         return;
     }
@@ -168,6 +180,7 @@ auto job_system::submit_with_state(task_state*  state,
     job_t* j          = allocate_job();
     j->func           = std::move(job_func);
     j->priority       = priority;
+    j->affinity       = affinity;
     j->id             = _next_job_id.fetch_add(1, std::memory_order_relaxed);
     j->batch_id       = 0;
     j->tracked        = true;
@@ -186,7 +199,8 @@ auto job_system::submit_with_state(task_state*  state,
 auto job_system::submit_internal(std::function<void(void*)> wrapper,
                                  usize                      result_size,
                                  void (*result_deleter)(void*),
-                                 job_priority priority) -> task {
+                                 job_priority               priority,
+                                 job_affinity               affinity) -> task {
     // allocate task state (shared between job and task handle).
     auto* state = new task_state();
 
@@ -207,7 +221,7 @@ auto job_system::submit_internal(std::function<void(void*)> wrapper,
     };
 
     // submit the job.
-    submit_with_state(state, std::move(job_func), priority);
+    submit_with_state(state, std::move(job_func), priority, affinity);
 
     return make_task(state);
 }
@@ -262,7 +276,26 @@ auto job_system::drain() -> void {
                  "drain() called. pending jobs: {}",
                  _pending_count.load());
     while (_pending_count.load(std::memory_order_relaxed) > 0) {
+        // also pump the main inbox: if we are the main thread (e.g. shutdown
+        // drain), main-pinned jobs would otherwise never run and this would spin
+        // forever. run_pinned_jobs() is a no-op off the main thread.
+        run_pinned_jobs();
         help_with_work_external();
+    }
+}
+
+auto job_system::run_pinned_jobs() -> void {
+    // only the main thread owns an inbox today. off-thread this is a no-op, which
+    // is why it is safe to call unconditionally (e.g. from drain()).
+    if (std::this_thread::get_id() != _main_thread_id) {
+        return;
+    }
+
+    // drain everything queued at entry. jobs pinned during this drain (a pinned
+    // job that itself pins more work) simply get picked up next frame — we do not
+    // loop forever chasing a moving tail.
+    while (auto j = _main_affinity_queue.try_pop()) {
+        execute_job(*j, SIZE_MAX);
     }
 }
 
@@ -320,6 +353,29 @@ auto job_system::free_job(job_t* j) -> void {
 }
 
 auto job_system::submit_job(job_t* j) -> void {
+    // affinity routing takes precedence over everything else: a pinned job must
+    // land in its target thread's inbox, never a worker deque or global queue.
+    if (j->affinity == job_affinity::main) {
+        if (_main_affinity_queue.try_push(j)) {
+            // the main thread will run it at the next frame-start drain. no wake
+            // needed — main polls its inbox every frame rather than sleeping.
+            return;
+        }
+        // inbox full (pathological: > a full frame of pinned work outstanding).
+        // if we ARE the main thread, run it inline now — safe, and it avoids a
+        // self-deadlock where main spins pushing while being the only drainer.
+        if (std::this_thread::get_id() == _main_thread_id) {
+            execute_job(j, SIZE_MAX);
+            return;
+        }
+        // otherwise spin until main drains space. running inline here would break
+        // the affinity guarantee (wrong thread), which is the whole point.
+        while (!_main_affinity_queue.try_push(j)) {
+            std::this_thread::yield();
+        }
+        return;
+    }
+
     if (is_worker_thread()) {
         u64 idx = get_current_worker_index();
         _workers[idx]->_local_queue.push(j);

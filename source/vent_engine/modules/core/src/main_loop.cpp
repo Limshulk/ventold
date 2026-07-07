@@ -112,6 +112,12 @@ auto main_loop::run() -> int {
 
     while (_client->is_running() &&
            !_stop_requested.load(std::memory_order_acquire)) {
+        // run work pinned to the main thread (job_affinity::main) at the frame
+        // boundary — before any phase runs. this is the safe, deterministic point
+        // where deferred main-thread work (e.g. event callbacks routed to main)
+        // executes, off the hot path of the phases themselves.
+        job()->run_pinned_jobs();
+
         // sync pending runnable changes.
         sync_runnables();
 
